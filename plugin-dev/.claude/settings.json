@@ -1,0 +1,6 @@
+{
+  "enabledPlugins": {
+    "revdiff-planning@revdiff": true,
+    "handoff@ddaanet": true
+  }
+}
