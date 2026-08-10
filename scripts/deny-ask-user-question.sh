@@ -21,5 +21,5 @@ default, so the thread proceeds without a round-trip.'
 human_msg="AskUserQuestion blocked: ask inline instead"
 
 jq -nc --arg r "$agent_reason" --arg s "$human_msg" \
-  '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}, systemMessage: $s}' >&2
-exit 2
+  '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}, systemMessage: $s}'
+exit 0

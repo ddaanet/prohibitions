@@ -14,7 +14,7 @@ fail() {
   failures=$((failures + 1))
 }
 
-run() {  # $1 = tool_name. The deny path writes its JSON to stderr, so merge it.
+run() {  # $1 = tool_name. Deny path writes JSON to stdout, exit 0.
   jq -nc --arg t "$1" '{tool_name: $t, tool_input: {}}' | bash "$hook" 2>&1
 }
 
