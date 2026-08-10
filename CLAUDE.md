@@ -61,3 +61,5 @@ hooks are added — see the toolkit's own README for the gate contract.
   `shared-claude.md` must not be trimmed until the corresponding hook exists
   here and is verified; that pairing check itself belongs in gitlore's
   SessionStart, not in this repo.
+
+@memory/ddaanet/shared-claude.md
