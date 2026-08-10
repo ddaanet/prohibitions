@@ -1,0 +1,18 @@
+{
+  "name": "prohibitions",
+  "version": "0.1.0",
+  "description": "Hooks that intercept ddaanet behavioural rules at the moment of action, replacing always-on prose with mechanical enforcement.",
+  "author": {
+    "name": "David Allouche",
+    "email": "david@ddaa.net"
+  },
+  "homepage": "https://github.com/ddaanet/prohibitions",
+  "repository": "https://github.com/ddaanet/prohibitions",
+  "license": "MIT",
+  "keywords": [
+    "hooks",
+    "guardrails",
+    "claude-code",
+    "ddaanet"
+  ]
+}
