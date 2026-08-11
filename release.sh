@@ -31,9 +31,23 @@ case "${1:-}" in
 esac
 acted=0
 
+check_marketplace_writable() {
+    # bump_marketplace replaces marketplace.json with mktemp + mv, which unlinks
+    # and recreates the file in its directory — so probe the directory, not just
+    # the file's mode bits. A sandboxed Bash call commonly can't write here.
+    local probe
+    probe=$(mktemp "$marketplace_dir/.release-writability-check.XXXXXX" 2>/dev/null) \
+        || die "$marketplace_dir is not writable — release needs to replace marketplace.json there. If this is a Claude Code sandbox restriction: rerun this Bash call with dangerouslyDisableSandbox, or run '/add-dir $MARKETPLACE_DIR' first."
+    rm -f "$probe"
+}
+
 common_preflight() {
     [ -f "$manifest" ] || die "$manifest not found — run from the plugin root"
-    git diff --quiet HEAD || die "uncommitted changes"
+    # Exclude memory/: a gitlore-mounted memory submodule sits at a gitlink SHA
+    # ahead of what HEAD records between commits by design — its own pre-commit
+    # hook folds that in on the next commit, not this one. A no-op pathspec in
+    # any repo without a memory/ path.
+    git diff --quiet HEAD -- . ':(exclude)memory' || die "uncommitted changes"
     branch=$(git symbolic-ref -q --short HEAD || echo "")
     # Use symbolic-ref (not rev-parse): when origin/HEAD is unset, rev-parse
     # exits non-zero AND prints "origin/HEAD" to stdout, so the substitution
@@ -45,6 +59,13 @@ common_preflight() {
         || die "MARKETPLACE_DIR not set (set in .envrc to the claude-plugins repo root)"
     marketplace_json="$MARKETPLACE_DIR/.claude-plugin/marketplace.json"
     [ -f "$marketplace_json" ] || die "$marketplace_json not found"
+    marketplace_dir=$(dirname "$marketplace_json")
+    # A release always bumps to a version the marketplace doesn't have yet, so
+    # the write is never a no-op — check fails fast here, before the tag and
+    # the GitHub release. A resume may find the marketplace already correct
+    # (a true no-op bump_marketplace can skip entirely); its own writability
+    # need is checked there, only when a write actually happens.
+    [ "$mode" = "release" ] && check_marketplace_writable
     plugin_name=$(jq -r .name "$manifest")
     # A missing entry is not an error: on first publication we create one from
     # plugin.json. Synthesising its `source` needs an `origin` remote to derive
@@ -56,7 +77,7 @@ common_preflight() {
         git remote get-url origin >/dev/null 2>&1 \
             || die "'$plugin_name' has no entry in $marketplace_json and no 'origin' remote to derive one from"
     fi
-    git -C "$MARKETPLACE_DIR" diff --quiet HEAD \
+    git -C "$MARKETPLACE_DIR" diff --quiet HEAD -- . ':(exclude)memory' \
         || die "$MARKETPLACE_DIR has uncommitted changes"
 }
 
@@ -178,8 +199,17 @@ bump_marketplace() {
           }]
         ' "$marketplace_json" > "$mp_tmp"
     fi
-    mv "$mp_tmp" "$marketplace_json"
-    git -C "$MARKETPLACE_DIR" add .claude-plugin/marketplace.json
+    # A no-op rewrite (marketplace already at $V) must not touch the file: the
+    # mktemp+mv replace needs to unlink and recreate marketplace.json in its
+    # directory, which a sandboxed resume-release can't do even when nothing
+    # actually needs to change.
+    if cmp -s "$mp_tmp" "$marketplace_json"; then
+        rm -f "$mp_tmp"
+    else
+        check_marketplace_writable
+        mv "$mp_tmp" "$marketplace_json"
+        git -C "$MARKETPLACE_DIR" add .claude-plugin/marketplace.json
+    fi
     # Committing and pushing are separate questions: the working tree can
     # already hold $V (nothing to commit) while the commit that put it there
     # never reached origin (nothing pushed) — e.g. this same push rejected on
