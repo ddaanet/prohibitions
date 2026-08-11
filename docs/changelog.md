@@ -4,6 +4,9 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-08-11** — `ask-branch-worktree-bash.sh` now also asks before
+  `git stash branch <name>`, which creates and checks out a branch like
+  the other three covered forms but previously fell through unasked.
 - **2026-08-11** — Reorganized the repo: `plans/` and `docs/` created,
   the bootstrap brief moved to `plans/`, `README.md` and `docs/design.md`
   added.

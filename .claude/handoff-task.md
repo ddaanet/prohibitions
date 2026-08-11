@@ -1,25 +1,9 @@
 ## Current task
 
-All 7 PreToolUse hooks from `brief-prohibitions-plugin-bootstrap.md` are implemented, live-dogfooded, and have now been through two independent verification passes: an Opus code review (12 findings, all fixed) and a manual second-pass review by me after a dispatched Opus review agent failed to return any output (4 idle notifications over ~10 minutes despite repeated explicit requests for its report — abandoned, not resolved by that agent). The manual second pass found and fixed 2 more real bugs. `just precommit` is green (8/8 test suites, shellcheck clean). **Nothing is committed yet.**
-
-### What changed in the manual second-pass review (on top of the prior session's 12 fixes)
-
-- **F13** (heredoc gap): the quote-stripping fix in `ask-branch-worktree-bash.sh` and `deny-no-verify.sh` strips `'...'`/`"..."` regions to keep prose in commit messages from false-triggering, but a heredoc body (`<<'EOF' ... EOF`) isn't wrapped in quotes at all — so a heredoc-style commit message documenting these hooks (e.g. "Document why checkout -b needs confirmation" or "Document that --no-verify is refused") false-triggered: an unwanted `ask` in the first script, and a hard **deny** blocking a completely safe commit in the second. This is exactly the idiom this project's own CLAUDE.md mandates for multi-line commit messages, so it's real, likely-to-recur traffic, not a contrived edge case. Confirmed empirically before fixing. Fixed by adding a `strip_heredocs` bash function (detects `<<`/`<<-` with optional quoted delimiter, strips lines between the opener and the matching terminator line) to both scripts, run before the existing quote-stripping sed pass. Regression tests added to both test files.
-- **F14** (only-first-match gap): `deny-hardwrapped-gh-body.sh` used `grep -Eom1` to extract the `--body-file` argument, so a compound Bash command chaining two gh body-posting calls (e.g. `gh issue create --body-file a.md && gh pr create --body-file b.md`) only linted the first file — a hard-wrapped second file silently passed the deny gate. Fixed: refactored the line-scanning loop into a `find_violation_line()` function, extract *all* `--body-file` matches via `grep -Eo` (no `-m1`), and check each referenced file in order, denying on the first violation found. Also fixed an `SC2015` shellcheck note the refactor introduced (`A && B && C || D` reads as if/then/else but isn't) by switching to an explicit `if [ -z ] || [ = "-" ] || [ ! -f ]; then continue; fi`. Regression test added covering the chained-command case.
-
-### Other things checked and found clean in the manual pass
-
-Re-verified against the brief's exact matcher table and `memory/ddaanet/hook-output-channels.md`'s channel rules: `hooks/hooks.json` wiring matches the brief's 7-rule table exactly (right matcher, right script, right event). All 8 scripts emit JSON on stdout+exit0 with correct `hookSpecificOutput` shape and no imperative phrasing in `permissionDecisionReason`. `ask-enter-worktree.sh`, `deny-ask-user-question.sh`, `deny-plugin-dev-edit.sh`, `deny-volatile-memory-state.sh`, `ask-write-edit-outside-project.sh` were read closely again and no new issues found beyond the prior session's already-fixed F1–F12.
-
-Two minor gaps noted but deliberately **not** fixed (judgment calls, not obvious/mechanical fixes — flagged for my human partner rather than unilaterally expanded scope):
-- `ask-branch-worktree-bash.sh` doesn't cover `git stash branch <name>` (a real command that both creates and switches a branch). The brief's matcher table explicitly lists only `checkout -b` / `switch -c` / `worktree add` — expanding beyond that is a scope decision, not a bug fix.
-- `deny-hardwrapped-gh-body.sh`'s `gh`/`(pr|issue)`/`(create|comment|edit|review)` detection is co-occurrence (not adjacency, same class as the original F1 bug), but exploiting it needs a contrived compound command — real gh CLI syntax means `--body-file` essentially only appears on the 4 in-scope subcommands, so this doesn't meet the brief's own bar of "a command the system genuinely issues."
-
-### Async review agent (abandoned)
-
-Dispatched a fresh Opus review agent (`fix-diff-review`) scoped to the fix diff, per the previously-open decision in this file. It never returned findings — 4 consecutive `idle_notification` pings over ~10 minutes, including after two explicit follow-up requests via SendMessage asking it to reply with its report as plain text. Concluded it was stuck/non-responsive and did the review manually instead (see above). Its mailbox may still be reachable by name (`fix-diff-review`) if it ever does respond, but nothing further should be expected from it.
+All 7 PreToolUse hooks are implemented, tested, and reviewed; the repo has been reorganized into `plans/` (prospective content) and `docs/` (current truth) with a new `README.md` and `docs/design.md`/`docs/changelog.md`. Three commits landed this session: `5a86456` (remaining 6 hooks), `cea9663` (CLAUDE.md status fix), `87a52bd` (reorg + README + design doc). `just precommit` is green.
 
 ## Open decisions
 
-- Nothing has been asked about committing. `just precommit` is green; my human partner decides if/when to commit.
-- No further review pass is planned — two independent passes (one automated-then-abandoned, one manual) have now run against the current diff.
+- Whether/when to cut the first release (`just release`) is undecided — my human partner's call, not blocking.
+- Two minor gaps left unfixed as scope calls, recorded in `docs/design.md`'s Limitations: `ask-branch-worktree-bash.sh` doesn't cover `git stash branch <name>`; `deny-hardwrapped-gh-body.sh`'s gh-subcommand detection is co-occurrence-based rather than fully adjacent.
+- No git remote is configured, so `just release`'s push step has nothing to push to yet — worth surfacing before the first release, not before now.

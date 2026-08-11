@@ -27,7 +27,9 @@ for cmd in \
   'git checkout --track -b feature/foo origin/feature/foo' \
   'git switch -c feature/foo' \
   'git switch --create feature/foo' \
-  'git worktree add ../foo feature/foo'
+  'git worktree add ../foo feature/foo' \
+  'git stash branch feature/foo' \
+  'git stash branch feature/foo stash@{0}'
 do
   out="$(run "$cmd")"
   printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' \
@@ -49,7 +51,10 @@ for cmd in \
   'git branch -a' \
   'git worktree list' \
   'git worktree remove ../foo' \
-  'git status'
+  'git status' \
+  'git stash list' \
+  'git stash pop' \
+  'git stash show branch'
 do
   out="$(run "$cmd")"
   [ -z "$out" ] || fail "[$cmd] expected pass-through, got: $out"
@@ -63,7 +68,8 @@ for cmd in \
   'git -c core.pager=cat switch main' \
   'git diff -b -- src/checkout.js' \
   'grep -rn -b needle checkout/' \
-  'gh pr create --title "worktree docs" --body "how to add one"'
+  'gh pr create --title "worktree docs" --body "how to add one"' \
+  'git stash pop && git branch -a'
 do
   out="$(run "$cmd")"
   [ -z "$out" ] || fail "[$cmd] expected pass-through (no adjacent creation form), got: $out"

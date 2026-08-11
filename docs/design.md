@@ -73,7 +73,7 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
   | Other repos stay read-only | `Write\|Edit`, path outside `CLAUDE_PROJECT_DIR` | **ask** | `ask-write-edit-outside-project.sh` |
   | Never hand-edit a vendored subtree | `Write\|Edit`, path matches `*/plugin-dev/*` | deny | `deny-plugin-dev-edit.sh` |
   | Never `--no-verify` | `Bash`, regex over `git commit`/`git push` | deny | `deny-no-verify.sh` |
-  | Never create/switch branches or worktrees | `Bash` (`checkout -b`, `switch -c`, `worktree add`) | **ask** | `ask-branch-worktree-bash.sh` |
+  | Never create/switch branches or worktrees | `Bash` (`checkout -b`, `switch -c`, `worktree add`, `stash branch`) | **ask** | `ask-branch-worktree-bash.sh` |
   | ″ | `EnterWorktree` | **ask** | `ask-enter-worktree.sh` |
   | No volatile git state in memory files | `Write\|Edit` on `memory/**.md`, 40-hex sha / `origin/*` tips | deny | `deny-volatile-memory-state.sh` |
   | GitHub bodies are not hard-wrapped | `Bash` on `gh pr\|issue create\|comment\|edit\|review` with `--body-file` | deny | `deny-hardwrapped-gh-body.sh` |

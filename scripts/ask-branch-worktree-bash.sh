@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# PreToolUse(Bash) guard: ask before `git checkout -b`, `git switch -c`, or
-# `git worktree add`.
+# PreToolUse(Bash) guard: ask before `git checkout -b`, `git switch -c`,
+# `git worktree add`, or `git stash branch`.
 #
 # My human partner owns branching — never create or switch branches or
 # worktrees unprompted. See shared-claude.md "My human partner owns
@@ -59,6 +59,8 @@ elif grep -Eq -- '\bswitch\b([[:space:]]+-[^[:space:]]+)*[[:space:]]+(-[cC]|--cr
   trigger="git switch -c"
 elif grep -Eq -- '\bworktree[[:space:]]+add\b' <<<"$stripped"; then
   trigger="git worktree add"
+elif grep -Eq -- '\bstash[[:space:]]+branch\b' <<<"$stripped"; then
+  trigger="git stash branch"
 else
   exit 0
 fi
