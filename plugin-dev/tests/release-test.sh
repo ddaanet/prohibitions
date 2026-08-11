@@ -5,6 +5,13 @@
 # Usage: bash tests/release-test.sh   (run from repo root)
 set -euo pipefail
 
+# When run as this repo's own pre-commit hook, the enclosing `git commit`
+# leaks GIT_DIR/GIT_INDEX_FILE/etc. into this process's environment. Every
+# git command below targets a synthetic fixture repo via `-C`, never this
+# repo, so it's always safe to drop them here.
+# shellcheck disable=SC2046  # word-splitting is the point: a var-name list
+unset $(git rev-parse --local-env-vars)
+
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 
@@ -124,6 +131,38 @@ JSON
 market_version() {
     jq -r '.plugins[] | select(.name=="fixture") | .version' \
         "$marketplace/.claude-plugin/marketplace.json"
+}
+
+mount_resting_memory_submodule() {
+    # $1=parent repo path. Mounts a `memory` git submodule and commits the
+    # mount, then advances the submodule's checked-out HEAD by one commit
+    # without folding the moved gitlink into a parent commit — gitlore's
+    # ordinary resting state between commits (see release.sh's
+    # common_preflight comment on the memory pathspec exclusion).
+    local parent="$1" sub_origin sub_seed
+    sub_origin="$parent-memory-origin.git"
+    sub_seed=$(mktemp -d)
+    git init -q --bare -b main "$sub_origin"
+    git init -q -b main "$sub_seed"
+    git -C "$sub_seed" config user.email test@example.com
+    git -C "$sub_seed" config user.name "Toolkit Test"
+    git -C "$sub_seed" config commit.gpgsign false
+    printf 'seed\n' > "$sub_seed/MEMORY.md"
+    git -C "$sub_seed" add -A
+    git -C "$sub_seed" commit -qm seed
+    git -C "$sub_seed" remote add origin "$sub_origin"
+    git -C "$sub_seed" push -q -u origin main
+    rm -rf "$sub_seed"
+
+    env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=protocol.file.allow GIT_CONFIG_VALUE_0=always \
+        git -C "$parent" submodule add -q "$sub_origin" memory
+    git -C "$parent" commit -qm "mount memory submodule"
+
+    printf 'advance\n' >> "$parent/memory/MEMORY.md"
+    git -C "$parent/memory" add -A
+    git -C "$parent/memory" -c user.email=test@example.com -c user.name="Toolkit Test" \
+        -c commit.gpgsign=false commit -qm advance
+    # Deliberately no parent commit here.
 }
 
 echo "=== release: happy path ==="
@@ -303,6 +342,53 @@ assert_eq "$(git -C "$plugin" rev-parse --verify -q refs/tags/v1.2.4 >/dev/null 
     "no" "unknown bump word created no tag"
 assert_eq "$(cat "$GH_LOG")" "" "unknown bump word must not call gh"
 
+echo "=== release: refuses when the marketplace directory isn't writable ==="
+new_sandbox "1.2.3"
+chmod 555 "$marketplace/.claude-plugin"
+run_in "$plugin" bash plugin-dev/release.sh patch
+chmod 755 "$marketplace/.claude-plugin"
+assert_eq "$rc" "1" "read-only marketplace dir exit code"
+assert_contains "$out" "$marketplace/.claude-plugin is not writable" "read-only marketplace dir message names the path"
+assert_contains "$out" "dangerouslyDisableSandbox" "read-only marketplace dir message names the sandbox escape"
+assert_contains "$out" "/add-dir $marketplace" "read-only marketplace dir message names the add-dir escape"
+assert_eq "$(jq -r .version "$plugin/.claude-plugin/plugin.json")" "1.2.3" "read-only marketplace dir left manifest untouched"
+assert_eq "$(git -C "$plugin" rev-parse --verify -q refs/tags/v1.2.4 >/dev/null && echo yes || echo no)" \
+    "no" "read-only marketplace dir created no tag"
+assert_eq "$(cat "$GH_LOG")" "" "read-only marketplace dir must not call gh"
+
+echo "=== resume: succeeds on a no-op marketplace bump even when its directory isn't writable ==="
+new_sandbox "1.2.3"
+run_in "$plugin" bash plugin-dev/release.sh patch
+assert_eq "$rc" "0" "setup release exit code"
+chmod 555 "$marketplace/.claude-plugin"
+run_in "$plugin" bash plugin-dev/release.sh --resume
+chmod 755 "$marketplace/.claude-plugin"
+assert_eq "$rc" "0" "no-op resume exit code despite read-only marketplace dir"
+assert_contains "$out" "already complete (nothing to do)" "no-op resume summary despite read-only marketplace dir"
+
+echo "=== resume: still refuses when a real marketplace write is needed and the directory isn't writable ==="
+new_sandbox "1.2.3"
+# Plugin push rejected: manifest+tag land locally, but the marketplace is
+# never touched (still 1.2.3) — a real write is needed to catch it up.
+cat > "$plugin/.git/hooks/pre-push" <<'HOOK'
+#!/bin/sh
+echo "pre-push: refusing" >&2
+exit 1
+HOOK
+chmod +x "$plugin/.git/hooks/pre-push"
+run_in "$plugin" bash plugin-dev/release.sh patch
+assert_eq "$rc" "1" "setup interrupted-release exit code"
+assert_eq "$(market_version)" "1.2.3" "setup marketplace still stale"
+rm -f "$plugin/.git/hooks/pre-push"
+chmod 555 "$marketplace/.claude-plugin"
+run_in "$plugin" bash plugin-dev/release.sh --resume
+chmod 755 "$marketplace/.claude-plugin"
+assert_eq "$rc" "1" "real-write resume exit code"
+assert_contains "$out" "$marketplace/.claude-plugin is not writable" "real-write resume message names the path"
+assert_eq "$(git -C "$plugin" ls-remote origin refs/tags/v1.2.4 | wc -l | tr -d ' ')" \
+    "1" "real-write resume still pushed the plugin tag before failing at the marketplace"
+assert_eq "$(market_version)" "1.2.3" "real-write resume left the marketplace untouched"
+
 echo "=== release: major bump end-to-end ==="
 new_sandbox "1.2.3"
 run_in "$plugin" bash plugin-dev/release.sh major
@@ -318,6 +404,42 @@ assert_eq "$rc" "0" "zero-argument exit code"
 assert_contains "$out" "Release v1.2.4 complete" "zero-argument summary"
 assert_eq "$(jq -r .version "$plugin/.claude-plugin/plugin.json")" "1.2.4" "zero-argument manifest version"
 assert_eq "$(market_version)" "1.2.4" "zero-argument marketplace bumped"
+
+echo "=== release: proceeds with a resting memory submodule in the plugin root ==="
+new_sandbox "1.2.3"
+mount_resting_memory_submodule "$plugin"
+run_in "$plugin" bash plugin-dev/release.sh patch
+assert_eq "$rc" "0" "resting-memory release exit code"
+assert_contains "$out" "Release v1.2.4 complete" "resting-memory release summary"
+assert_eq "$(market_version)" "1.2.4" "resting-memory release bumped the marketplace"
+
+echo "=== release: still refuses a genuinely dirty non-memory path in the plugin root ==="
+new_sandbox "1.2.3"
+mount_resting_memory_submodule "$plugin"
+jq '.description = "dirty"' "$plugin/.claude-plugin/plugin.json" > "$plugin/.claude-plugin/plugin.json.tmp"
+mv "$plugin/.claude-plugin/plugin.json.tmp" "$plugin/.claude-plugin/plugin.json"
+run_in "$plugin" bash plugin-dev/release.sh patch
+assert_eq "$rc" "1" "dirty-plugin-root release exit code"
+assert_contains "$out" "uncommitted changes" "dirty-plugin-root release message"
+assert_eq "$(cat "$GH_LOG")" "" "dirty-plugin-root release must not call gh"
+
+echo "=== release: proceeds with a resting memory submodule in the marketplace repo ==="
+new_sandbox "1.2.3"
+mount_resting_memory_submodule "$marketplace"
+run_in "$plugin" bash plugin-dev/release.sh patch
+assert_eq "$rc" "0" "resting-memory marketplace release exit code"
+assert_contains "$out" "Release v1.2.4 complete" "resting-memory marketplace release summary"
+assert_eq "$(market_version)" "1.2.4" "resting-memory marketplace release bumped the marketplace"
+
+echo "=== release: still refuses a genuinely dirty non-memory path in the marketplace repo ==="
+new_sandbox "1.2.3"
+mount_resting_memory_submodule "$marketplace"
+jq '.plugins[0].description = "dirty"' "$marketplace/.claude-plugin/marketplace.json" > "$marketplace/.claude-plugin/marketplace.json.tmp"
+mv "$marketplace/.claude-plugin/marketplace.json.tmp" "$marketplace/.claude-plugin/marketplace.json"
+run_in "$plugin" bash plugin-dev/release.sh patch
+assert_eq "$rc" "1" "dirty-marketplace release exit code"
+assert_contains "$out" "$MARKETPLACE_DIR has uncommitted changes" "dirty-marketplace release message"
+assert_eq "$(cat "$GH_LOG")" "" "dirty-marketplace release must not call gh"
 
 if (( failures > 0 )); then
     printf '\n%d failure(s)\n' "$failures" >&2
