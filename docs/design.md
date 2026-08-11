@@ -98,6 +98,30 @@ from every other consumer and from the tagged source, and the next
 `subtree pull` will conflict. The single source of truth is
 `ddaanet/claude-plugin-dev` at a tag — nowhere else.
 
+### `update-plugin-dev` disables submodule recursion for its one fetch
+
+This repo mounts its own gitlore `memory` tier as a submodule at
+top-level path `memory`. `git subtree pull` fetches this repo's raw,
+unprefixed history before re-rooting it under `plugin-dev/` — so for
+that one `git fetch`, this repo's tree really does have a gitlink at
+top-level path `memory`.
+
+A consumer that *also* mounts a gitlore `memory` submodule at that
+same top-level path collides: `fetch.recurseSubmodules=on-demand`
+(git's default) sees the gitlink and tries to resolve it using the
+*consumer's* registered `memory` submodule URL, not this repo's —
+because on-demand resolution keys off the locally registered
+submodule path, and this repo's own submodule config isn't in scope
+for a consumer's local fetch. That remote doesn't have the commit, so
+the fetch dies with `fatal: remote error: upload-pack: not our ref
+…`, aborting the pull before any merge.
+
+Fixed by scoping `-c fetch.recurseSubmodules=no` to just the
+`subtree pull` invocation in `update-plugin-dev` — a no-op for
+consumers without a `memory` submodule, and harmless for consumers
+with one, since the vendored `plugin-dev/memory` gitlink is never
+meant to be checked out as a submodule inside a consumer either way.
+
 ### Versioning: tags only, never `HEAD`
 
 `install.sh` and `update-plugin-dev` both expect a ref like `v0.2.0`.

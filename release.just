@@ -66,7 +66,14 @@ update-plugin-dev ref:
       v*) ;;
       main|master|HEAD) echo "warning: pulling a branch ref ({{ref}}) — prefer a tag (vX.Y.Z) for reproducibility" >&2 ;;
     esac
-    git subtree pull --prefix="{{toolkit_prefix}}" "{{toolkit_url}}" "{{ref}}" --squash
+    # A consumer that also mounts a gitlore `memory` submodule at top level
+    # collides here: `subtree pull` fetches this repo's raw, unprefixed
+    # history first (this repo mounts its own `memory` submodule at that same
+    # path), and fetch.recurseSubmodules=on-demand then tries to resolve that
+    # gitlink using the CONSUMER's registered `memory` submodule URL instead
+    # of this repo's, and fails with "not our ref". Scoped to this one fetch
+    # only -- a no-op for consumers without a `memory` submodule.
+    git -c fetch.recurseSubmodules=no subtree pull --prefix="{{toolkit_prefix}}" "{{toolkit_url}}" "{{ref}}" --squash
     # Verify VERSION matches the requested tag (catches half-applied
     # subtree pulls). VERSION first appeared in v0.2.0; older refs
     # lack it, so the check is best-effort.
