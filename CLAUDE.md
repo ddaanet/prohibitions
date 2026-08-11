@@ -15,11 +15,11 @@ arises.
 
 **Status: all seven hooks implemented.** `hooks/hooks.json` wires up all
 seven PreToolUse hooks from the brief, each with a script in `scripts/` and
-an end-to-end test in `tests/`. Full design context, the seven rules in
-scope, their matchers/decisions, and the constraints on how they must be
-built lives in `brief-prohibitions-plugin-bootstrap.md` at the repo root —
-read it before touching a hook here. The rationale for *which* rules convert
-to hooks vs. stay prose is in
+an end-to-end test in `tests/`. The living design — full matcher table,
+design decisions with rationale, rejected alternatives — is
+`docs/design.md`; read it before touching a hook here. The original
+bootstrap brief is `plans/brief-prohibitions-plugin-bootstrap.md`. The
+rationale for *which* rules convert to hooks vs. stay prose is in
 `/Users/david/code/gitlore/plans/context-rules-vs-hooks-audit.md`.
 
 ## Commands
@@ -33,7 +33,7 @@ just release [patch|minor|major]   # bump plugin.json, commit, tag, push, gh rel
 just update-plugin-dev vX.Y.Z      # pull a newer plugin-dev/ toolkit version
 ```
 
-## Architecture
+## Layout
 
 - **`.claude-plugin/plugin.json`** — the plugin manifest. Its `.version`
   field holds the *last released* version and can only be changed by `just
@@ -44,24 +44,20 @@ just update-plugin-dev vX.Y.Z      # pull a newer plugin-dev/ toolkit version
   (currently v0.5.0). Read-only: never hand-edit it. Changes go to the
   source repo, get tagged, then pulled in here with `just
   update-plugin-dev`.
-- **`hooks/hooks.json`** — wires the brief's seven rules to eight scripts
-  (one rule, branch/worktree creation, needs two scripts to cover both its
-  `Bash` and `EnterWorktree` matchers). Five rules deny (`deny-no-verify`,
-  `deny-hardwrapped-gh-body`, `deny-plugin-dev-edit`,
-  `deny-volatile-memory-state`, `deny-ask-user-question`); two rules ask
-  (`ask-branch-worktree-bash` + `ask-enter-worktree` for branch/worktree
-  creation, `ask-write-edit-outside-project` for edits outside
-  `CLAUDE_PROJECT_DIR` — see the brief's "Constraints" section for why these
-  two must ask rather than deny). Each script lives in `scripts/` with a
-  matching end-to-end test in `tests/<name>-test.sh`, run by `just
-  precommit`. Each hook's denial/ask message carries the recovery detail the
-  prose it replaces used to carry, and each guard is verified against a real
-  command expecting ALLOW, not just the commands it should block.
-- **Decoupling from the tier**: this plugin's installation (via the
-  marketplace) and the `shared-claude.md` tier's mounting (via gitlore) are
-  independent — nothing here couples them. Per the brief, the prose in
-  `shared-claude.md` must not be trimmed until the corresponding hook exists
-  here and is verified; that pairing check itself belongs in gitlore's
-  SessionStart, not in this repo.
+- **`hooks/hooks.json`**, **`scripts/`**, **`tests/`** — the seven rules'
+  wiring, one script per hook, one end-to-end test per script. Full matcher
+  table and rationale: `docs/design.md`.
+- **`docs/design.md`** — living rationale for every design decision. States
+  what the plugin *is*; update when a design choice changes.
+- **`docs/changelog.md`** — write-time record of each change, newest first.
+- **`plans/`** — prospective content only: the bootstrap brief and any
+  future implementation plans. `docs/` holds what is true now.
+- **`memory/`** — the `ddaanet` shared memory tier, mounted as a submodule
+  via gitlore; includes `shared-claude.md`, the prose these hooks are
+  converting rule-by-rule. This plugin's installation (via the marketplace)
+  and the tier's mounting (via gitlore) are independent — nothing here
+  couples them, so the prose in `shared-claude.md` must not be trimmed
+  until the corresponding hook exists here and is verified; that pairing
+  check itself belongs in gitlore's SessionStart, not in this repo.
 
 @memory/ddaanet/shared-claude.md
