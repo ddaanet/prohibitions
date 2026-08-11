@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 `prohibitions@ddaanet` — a Claude Code plugin, published in the `ddaanet`
-marketplace (`ddaanet/claude-plugins`), that will hold PreToolUse hooks
+marketplace (`ddaanet/claude-plugins`), that holds PreToolUse hooks
 intercepting ddaanet behavioural rules at the moment of action instead of
 carrying them as always-on prose. The rules being converted currently live in
 `/Users/david/code/gitlore/memory/ddaanet/shared-claude.md`, the tier every
@@ -13,28 +13,25 @@ ddaanet repo's `CLAUDE.md` imports; every line there is paid by every session
 in every one of those repos, while a hook is paid only when the situation
 arises.
 
-**Status: bootstrap only.** The repo currently holds the plugin manifest and
-the vendored release toolkit — no hooks have been implemented yet. Full
-design context, the seven rules in scope, their matchers/decisions, and the
-constraints on how they must be built lives in
-`brief-prohibitions-plugin-bootstrap.md` at the repo root — read it before
-implementing any hook here. The rationale for *which* rules convert to hooks
-vs. stay prose is in `/Users/david/code/gitlore/plans/context-rules-vs-hooks-audit.md`.
+**Status: all seven hooks implemented.** `hooks/hooks.json` wires up all
+seven PreToolUse hooks from the brief, each with a script in `scripts/` and
+an end-to-end test in `tests/`. Full design context, the seven rules in
+scope, their matchers/decisions, and the constraints on how they must be
+built lives in `brief-prohibitions-plugin-bootstrap.md` at the repo root —
+read it before touching a hook here. The rationale for *which* rules convert
+to hooks vs. stay prose is in
+`/Users/david/code/gitlore/plans/context-rules-vs-hooks-audit.md`.
 
 ## Commands
 
 Release tooling comes from the vendored `plugin-dev/` toolkit (see below).
 
 ```sh
-just precommit    # commit gate — currently just validates plugin.json is valid JSON
+just precommit    # commit gate: lint plugin.json/hooks.json, shellcheck, bash -n, run every tests/*-test.sh
 just prerelease   # release gate, defaults to precommit
 just release [patch|minor|major]   # bump plugin.json, commit, tag, push, gh release
 just update-plugin-dev vX.Y.Z      # pull a newer plugin-dev/ toolkit version
 ```
-
-`precommit`/`prerelease` are stubs (from `plugin-dev/install.sh`'s scaffold)
-and must grow real checks (hook tests, `hooks.json` lint, shellcheck) as
-hooks are added — see the toolkit's own README for the gate contract.
 
 ## Architecture
 
@@ -47,14 +44,19 @@ hooks are added — see the toolkit's own README for the gate contract.
   (currently v0.5.0). Read-only: never hand-edit it. Changes go to the
   source repo, get tagged, then pulled in here with `just
   update-plugin-dev`.
-- **Hooks (planned, not yet present)** — per the brief, this plugin will
-  ship a `hooks/hooks.json` with seven PreToolUse hooks, five denying and
-  two asking (branch/worktree creation, and edits outside
-  `CLAUDE_PROJECT_DIR`, must ask rather than deny — see the brief's
-  "Constraints" section for why). Each hook's denial/ask message must carry
-  the recovery detail the prose currently carries, and each guard must be
-  verified against a real command expecting ALLOW, not just the commands it
-  should block.
+- **`hooks/hooks.json`** — wires the brief's seven rules to eight scripts
+  (one rule, branch/worktree creation, needs two scripts to cover both its
+  `Bash` and `EnterWorktree` matchers). Five rules deny (`deny-no-verify`,
+  `deny-hardwrapped-gh-body`, `deny-plugin-dev-edit`,
+  `deny-volatile-memory-state`, `deny-ask-user-question`); two rules ask
+  (`ask-branch-worktree-bash` + `ask-enter-worktree` for branch/worktree
+  creation, `ask-write-edit-outside-project` for edits outside
+  `CLAUDE_PROJECT_DIR` — see the brief's "Constraints" section for why these
+  two must ask rather than deny). Each script lives in `scripts/` with a
+  matching end-to-end test in `tests/<name>-test.sh`, run by `just
+  precommit`. Each hook's denial/ask message carries the recovery detail the
+  prose it replaces used to carry, and each guard is verified against a real
+  command expecting ALLOW, not just the commands it should block.
 - **Decoupling from the tier**: this plugin's installation (via the
   marketplace) and the `shared-claude.md` tier's mounting (via gitlore) are
   independent — nothing here couples them. Per the brief, the prose in
