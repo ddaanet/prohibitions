@@ -4,6 +4,13 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-08-26** — `ask-write-edit-outside-project.sh` no longer asks
+  for a `Write` creating a new `.md` file outside the project (except
+  `CLAUDE.md` and paths under `.claude/`): dropping a note in another
+  repo is the permitted case, and it was paying a prompt every time.
+  Backed by auto-mode probes showing the classifier does not block
+  unprompted in-place edits in a sibling repo, so the hook stays for
+  those; rationale in `docs/design.md`.
 - **2026-08-11** — `ask-branch-worktree-bash.sh` now also asks before
   `git stash branch <name>`, which creates and checks out a branch like
   the other three covered forms but previously fell through unasked.

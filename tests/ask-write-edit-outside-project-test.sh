@@ -67,6 +67,37 @@ out="$(run "Write" "$TMPDIR/prohibitions-test-scratch.txt")"
 out="$(run "Write" "/tmp/prohibitions-test-scratch.txt")"
 [ -z "$out" ] || fail "bare /tmp path expected pass-through, got: $out"
 
+# Dropping a note in another repo is permitted — the prose forbids editing
+# *in place*. A Write creating a not-yet-existing .md file outside the
+# project passes through; everything else out-of-project still asks.
+new_md="${repo_root}-sibling/brief-probe.md"
+[ ! -e "$new_md" ] || fail "test precondition: $new_md unexpectedly exists"
+out="$(run "Write" "$new_md")"
+[ -z "$out" ] || fail "new out-of-project .md via Write expected pass-through, got: $out"
+
+# Edit on the same path is an in-place modification by definition.
+out="$(run "Edit" "$new_md")"
+printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' \
+  >/dev/null 2>&1 || fail "Edit on out-of-project .md was not asked: $out"
+
+# Write over an existing out-of-project .md clobbers it: ask.
+[ -f "$outside" ] || fail "test precondition: $outside must exist"
+out="$(run "Write" "$outside")"
+printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' \
+  >/dev/null 2>&1 || fail "Write over existing out-of-project .md was not asked: $out"
+
+# A new non-.md file can be code: ask.
+out="$(run "Write" "${repo_root}-sibling/hook.sh")"
+printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' \
+  >/dev/null 2>&1 || fail "new out-of-project non-.md was not asked: $out"
+
+# The two .md locations that change behaviour are not notes: ask.
+for p in "${repo_root}-sibling/CLAUDE.md" "${repo_root}-sibling/.claude/commands/x.md"; do
+  out="$(run "Write" "$p")"
+  printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' \
+    >/dev/null 2>&1 || fail "new behaviour-changing .md ($p) was not asked: $out"
+done
+
 # Real traffic this matcher's script must let through unharmed, even if ever
 # mis-wired to a broader matcher: every other tool call passes through silent.
 for t in Bash Read AskUserQuestion; do

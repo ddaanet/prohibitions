@@ -70,7 +70,7 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
   | Rule | Matcher | Decision | Script |
   | --- | --- | --- | --- |
   | Never call `AskUserQuestion` | tool name `AskUserQuestion` | deny | `deny-ask-user-question.sh` |
-  | Other repos stay read-only | `Write\|Edit`, path outside `CLAUDE_PROJECT_DIR` | **ask** | `ask-write-edit-outside-project.sh` |
+  | Other repos stay read-only | `Write\|Edit`, path outside `CLAUDE_PROJECT_DIR`; new `.md` via `Write` exempt | **ask** | `ask-write-edit-outside-project.sh` |
   | Never hand-edit a vendored subtree | `Write\|Edit`, path matches `*/plugin-dev/*` | deny | `deny-plugin-dev-edit.sh` |
   | Never `--no-verify` | `Bash`, regex over `git commit`/`git push` | deny | `deny-no-verify.sh` |
   | Never create/switch branches or worktrees | `Bash` (`checkout -b`, `switch -c`, `worktree add`, `stash branch`) | **ask** | `ask-branch-worktree-bash.sh` |
@@ -101,6 +101,32 @@ partner named is executing their instruction, not originating a branch
 switch, and filing a brief in another repo is legitimate — only *edits*
 there are forbidden. A hook that denies either blocks legitimate work,
 so both use the `ask` permission decision instead.
+
+### Off-project note drops pass without asking
+
+The prose draws its own line: other repos are never *edited in place*,
+but "dropping a note or brief in that repo is permitted". The hook
+originally asked on every out-of-project `Write`/`Edit`, so the
+permitted case — the typical one — paid a confirmation prompt every
+time. It now passes a `Write` whose target does not yet exist and ends
+in `.md` (excluding `CLAUDE.md` and anything under `.claude/`, the two
+`.md` locations that change behaviour); `Edit`, `Write` over an
+existing file, and new non-`.md` files still ask.
+
+The alternative was dropping the hook and relying on the sandbox plus
+the auto-mode classifier. The sandbox does cover Bash-path writes (its
+write allowlist is the working directory plus scratch), but `Write`/
+`Edit` are not sandboxed, and probing showed the classifier allows an
+unprompted `Edit` of a pre-existing file in a sibling repo — with no
+rule, with the prose in `CLAUDE.md`, and with a custom
+`autoMode.soft_deny` naming exactly that case. It reads a one-line edit
+as task-serving and non-destructive; "being right does not authorize
+it" is not a safety property it scores. In `default` and `acceptEdits`
+modes Claude Code already prompts for out-of-cwd edits, so the hook's
+value is confined to `auto` and `bypassPermissions` — which is exactly
+where its `ask` is the only prompt the user sees. A hook `ask` always
+prompts the user, never the classifier, so narrowing the trigger was
+the only way to remove the prompt from the permitted case.
 
 ### Strip quoted and heredoc regions before matching
 
