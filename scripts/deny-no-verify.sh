@@ -66,7 +66,20 @@ cwd="$(jq -r '.cwd // ""' <<<"$input")"
 agent_reason="git commit/push with --no-verify is refused unconditionally.
 Hooks run every time; a failing push is not resolved by bypassing them."
 
-human_msg="blocked: --no-verify refused — stale push-hook symptom? fix: (cd $cwd && claude -p ping)"
+# The recovery is printed for my human partner to paste, so it has to be
+# verbatim-runnable. The path is single-quoted (an unquoted spaced path makes
+# `cd` a two-argument call that fails) with any embedded single quote
+# re-quoted the POSIX way as '\''. With no cwd in the payload there is no
+# path to substitute, so the cd clause is dropped rather than emitted empty —
+# `(cd  && claude -p ping)` is not a command anyone can run.
+if [ -n "$cwd" ]; then
+  esc_cwd="${cwd//\'/\'\\\'\'}"
+  recovery="(cd '$esc_cwd' && claude -p ping)"
+else
+  recovery="claude -p ping, from the repo root"
+fi
+
+human_msg="blocked: --no-verify refused — stale push-hook symptom? fix: $recovery"
 
 jq -nc --arg r "$agent_reason" --arg s "$human_msg" \
   '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}, systemMessage: $s}'

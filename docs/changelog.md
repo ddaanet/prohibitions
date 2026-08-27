@@ -4,6 +4,13 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-08-27** — `deny-no-verify.sh`'s recovery command is now
+  verbatim-runnable. The repo path was interpolated unquoted, so a
+  spaced path printed `cd /Users/david/my repo` — a two-argument `cd`
+  — and a payload with no `cwd` printed the unrunnable
+  `(cd  && claude -p ping)`. The path is single-quoted, an embedded
+  single quote re-quoted as `'\''`, and with no `cwd` the `cd` clause is
+  dropped rather than emitted empty.
 - **2026-08-27** — `deny-hardwrapped-gh-body.sh` resolves a relative
   `--body-file` against the payload's `cwd`. The hook had never read the
   field, so a relative path resolved against whatever cwd the hook

@@ -36,6 +36,38 @@ do
     || fail "[$cmd] deny carried no permissionDecisionReason for the agent"
 done
 
+# The recovery command is printed for a human to paste, so it must be
+# verbatim-runnable: the substituted repo path is quoted, or a spaced path
+# turns `cd /Users/x/my repo` into a two-argument cd that fails.
+out="$(jq -nc '{tool_name: "Bash", tool_input: {command: "git push --no-verify"}, cwd: "/tmp/my repo"}' \
+  | bash "$hook" 2>&1 || true)"
+printf '%s' "$out" | jq -e '.systemMessage | contains("(cd '\''/tmp/my repo'\'' && claude -p ping)")' \
+  >/dev/null 2>&1 || fail "spaced repo path was not quoted in the recovery command: $out"
+
+# A single quote inside the path has to be re-quoted the POSIX way, or the
+# quoting added above is itself what breaks the command. Both the path and
+# the expectation are assembled from named characters: spelling them inline
+# needs four levels of escaping and stops being readable or checkable.
+sq="'"
+bs="\\"
+quoted_repo="/tmp/o${sq}brien/repo"
+expected="(cd ${sq}/tmp/o${sq}${bs}${sq}${sq}brien/repo${sq} && claude -p ping)"
+out="$(jq -nc --arg d "$quoted_repo" \
+  '{tool_name: "Bash", tool_input: {command: "git push --no-verify"}, cwd: $d}' \
+  | bash "$hook" 2>&1 || true)"
+printf '%s' "$out" | jq -e --arg e "$expected" '.systemMessage | contains($e)' \
+  >/dev/null 2>&1 || fail "single quote in the repo path was not re-quoted: $out"
+
+# With no cwd in the payload there is no path to substitute, so the cd clause
+# is dropped rather than emitted empty — `(cd  && claude -p ping)` is not a
+# command anyone can run.
+out="$(jq -nc '{tool_name: "Bash", tool_input: {command: "git push --no-verify"}}' \
+  | bash "$hook" 2>&1 || true)"
+printf '%s' "$out" | jq -e '.systemMessage | contains("claude -p ping")' \
+  >/dev/null 2>&1 || fail "cwd-less payload lost the stale-shim recovery: $out"
+printf '%s' "$out" | jq -e '.systemMessage | contains("cd") | not' \
+  >/dev/null 2>&1 || fail "cwd-less payload emitted a cd clause with no path: $out"
+
 # Real must-allow traffic: this repo's own commit workflow, and other real
 # commands that share a word with the trigger but aren't the trigger.
 for cmd in \
