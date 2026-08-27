@@ -12,11 +12,15 @@ failures=0
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
   failures=$((failures + 1))
+  return 0
 }
 
+# stderr is merged into the captured output and a non-zero exit swallowed: a
+# pass case asserts the output is empty, so a hook that dies noisily fails the
+# assertion rather than aborting the suite mid-loop under `set -e`.
 run() {  # $1 = command. Deny path writes JSON to stdout, exit 0.
   jq -nc --arg c "$1" --arg d "$repo_root" \
-    '{tool_name: "Bash", tool_input: {command: $c}, cwd: $d}' | bash "$hook" 2>&1
+    '{tool_name: "Bash", tool_input: {command: $c}, cwd: $d}' | bash "$hook" 2>&1 || true
 }
 
 assert_denied() {  # $1 = label, $2 = hook output
@@ -58,14 +62,14 @@ for cmd in \
   'git status && git add -A && git commit -m "wip"' \
   'git add -- .'
 do
-  out="$(run "$cmd")" || true
+  out="$(run "$cmd")"
   assert_denied "$cmd" "$out"
 done
 
 # Segments are split on newlines too: a whole-tree add on any line of a
 # multi-line command is the same command.
 multiline_cmd=$'git status --short\ngit add -A\ngit commit -m "wip"'
-out="$(run "$multiline_cmd")" || true
+out="$(run "$multiline_cmd")"
 assert_denied 'multi-line command with git add -A on line 2' "$out"
 
 # Real must-allow traffic: targeted staging (the 77% case), the tracked-only
@@ -111,7 +115,7 @@ out="$(run "$heredoc_cmd")"
 # Real traffic this matcher's script must let through unharmed, even if ever
 # mis-wired to a broader matcher: every other tool call passes through silent.
 for t in Write Edit Read AskUserQuestion; do
-  passthrough="$(jq -nc --arg t "$t" '{tool_name: $t, tool_input: {}}' | bash "$hook")"
+  passthrough="$(jq -nc --arg t "$t" '{tool_name: $t, tool_input: {}}' | bash "$hook" 2>&1 || true)"
   [ -z "$passthrough" ] || fail "[$t] expected pass-through, got: $passthrough"
 done
 

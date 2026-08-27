@@ -50,6 +50,33 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
   matching over the command string (with quoted and heredoc regions
   stripped first, so prose mentioning a trigger word doesn't fire the
   guard), not a full shell grammar.
+- **POSIX and bash 3.2, so the hooks run on macOS as well as Linux.**
+  These scripts run wherever Claude Code runs, and the plugin is
+  installed from a marketplace rather than built per machine, so a
+  GNU-only construct is a defect even when every machine in sight is a
+  Linux one. Two contracts, both enforced by
+  `tests/portability-test.sh`:
+
+  - **Utilities are POSIX; GNU extensions are out.** No `realpath -m`
+    or `readlink -f` (BSD realpath has no `-m`, and macOS before 12.3
+    ships no realpath at all — `ask-write-edit-outside-project.sh`
+    carries a portable `abspath()` built from `cd -P` and `pwd`), no
+    `\b` in an ERE, no `sed -i` without a suffix, no `grep -P`, `date
+    -d`, `stat -c`, `find -printf` or `timeout`. `jq`, `awk`, `sed -E`
+    and `tr` are fair game in their POSIX subsets; awk interval
+    expressions (`{n,m}`) are not, which is why the volatile-state
+    matcher tests token length rather than writing the interval.
+  - **`#!/usr/bin/env bash` means bash 3.2**, the version Apple has
+    shipped since 2007: no associative arrays, `mapfile`, `${var,,}`,
+    `wait -n`, or `inherit_errexit`.
+
+  `\b` deserves the specific note, because it is the reason this is a
+  requirement and not a preference. A GNU-only *flag* dies loudly with
+  `illegal option`; `\b` has no POSIX ERE equivalent, so BSD grep does
+  not reject it — the match simply stops firing, and a guard that
+  silently stops guarding looks exactly like a guard with nothing to
+  do. Boundaries are spelled `(^|[^A-Za-z0-9_])` and
+  `([^A-Za-z0-9_]|$)` throughout.
 - **`shared-claude.md` itself is untouched by this plugin.** Trimming
   its prose once a hook exists is a separate, later change — deleting a
   rule from the tier before its hook is installed and verified in every
@@ -84,7 +111,12 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
 - **`scripts/*.sh` + `tests/*-test.sh`** — one script per hook, one
   end-to-end test per script, driven by synthetic hook JSON payloads
   through `jq`. `just precommit` runs `shellcheck`, `bash -n`,
-  and every `tests/*-test.sh`.
+  and every `tests/*-test.sh`. One test is not paired with a hook:
+  `tests/portability-test.sh` is a static scan of every script and
+  test for the GNU-only constructs the platform contract above rules
+  out, since a suite that only ever runs on Linux is green on those by
+  construction. A line that names a banned construct on purpose opts
+  out with a trailing `# portability-ok`.
 - **`plugin-dev/`** — the `claude-plugin-dev` release toolkit, vendored
   via `git subtree`, pinned to a tag. Read-only; see its own
   `docs/design.md` for why.
@@ -277,6 +309,16 @@ of its decision, and matches
 
 ## Limitations
 
+- **The portability contract is checked statically, not exercised.**
+  `tests/portability-test.sh` scans for the GNU-only constructs
+  already known to bite; it cannot catch a new one nobody has listed,
+  and nothing here runs the suite on a Mac. The one construct with
+  behavioural coverage is path resolution, which
+  `ask-write-edit-outside-project-test.sh` exercises with `realpath`
+  and `readlink` stubbed out of PATH. The symlinked-scratch case in
+  that same test states the invariant macOS depends on — both sides of
+  the comparison resolved, so `/tmp` matching `/private/tmp` — but it
+  passes on Linux either way, so it documents rather than proves.
 - **No pairing check yet.** A repo that mounts the `ddaanet` memory tier
   without enabling this plugin is unguarded with no visible symptom.
   The check belongs in gitlore's `SessionStart`, not here, and doesn't

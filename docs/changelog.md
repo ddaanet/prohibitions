@@ -4,6 +4,38 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-08-27** — macOS/BSD compatibility recorded as a requirement in
+  `docs/design.md` (POSIX utilities, bash 3.2) and enforced by a new
+  `tests/portability-test.sh`, plus the four GNU-only constructs that
+  requirement made non-conformant. `ask-write-edit-outside-project.sh`
+  drops `realpath -m` — GNU-only, and fatal under `set -e` on a Mac —
+  for a portable `abspath()` over `cd -P`/`pwd`, and now runs the
+  literal `/tmp` through it too, so the scratch exemption survives
+  `/tmp` being a symlink to `/private/tmp`. `\b` is gone from
+  `deny-volatile-memory-state.sh` (which tokenizes in awk instead),
+  `deny-no-verify.sh`, `deny-hardwrapped-gh-body.sh` and
+  `ask-branch-worktree-bash.sh`: it has no POSIX ERE equivalent, so BSD
+  grep does not reject it — the guard silently stops matching, which is
+  the worse failure. All four rewrites were differential-tested against
+  the previous scripts over 46 commands with no behavioural change.
+- **2026-08-27** — `warn-sandbox-excluded-commands.sh` no longer treats
+  a settings.json it cannot read as a pass. `jq -e '.sandbox.enabled ==
+  true' … || exit 0` collapsed "sandbox off" and "jq could not evaluate
+  this" into the same silence, and a wrong-typed `.sandbox` is valid
+  JSON, so it cleared the parse gate and failed only there — the one
+  case where the sandbox may well be on and nothing warns. The shape is
+  now classified inside jq (`off`, `on`, or which key is malformed) and
+  every not-knowing warns, as the script's header always claimed.
+- **2026-08-27** — Test hygiene alongside the above: the capture
+  convention the suite documents (merge stderr, swallow the exit
+  status, assert on the output) is now applied in
+  `deny-git-add-all-test.sh` and `ask-write-edit-outside-project-test.sh`,
+  which had cases that aborted the run under `set -e` or let a hook's
+  stderr escape unasserted; the `shared-claude.md` fixture is cut by
+  lines rather than by `head -c`, which splits a UTF-8 sequence the
+  moment an edit upstream shifts the boundary; and the volatile-state
+  matcher gained the case `\b` was carrying — a hex run embedded in a
+  longer word (`codefaced`) must pass.
 - **2026-08-27** — New hook `warn-sandbox-excluded-commands.sh`, the
   plugin's first non-`PreToolUse` rule: at `SessionStart` it checks that
   `~/.claude/settings.json` excludes `git:*`, `find:*`, `ls:*` and

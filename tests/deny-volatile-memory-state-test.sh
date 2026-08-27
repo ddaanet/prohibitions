@@ -127,6 +127,13 @@ assert_passed "all-digit runs are numbers" \
 assert_passed "hex words are words" \
   "$(run_write "$mem" 'The next line added a facade; the entry acceded and was defaced, then faded.')"
 
+# The hex run must be word-boundary-delimited: `defaced` inside `codefaced`
+# is not a token of its own. This is the case `\b` used to carry, and it is
+# where a GNU-only `grep -oE '\b…\b'` fails silently on BSD/macOS rather
+# than erroring, so it is asserted behaviourally instead of by platform.
+assert_passed "hex run embedded in a longer word" \
+  "$(run_write "$mem" 'the codefaced stagedeadbeefly xdeadbeef deadbeefx cases')"
+
 # Git never emits an uppercase sha; uppercase hex is an acronym.
 assert_passed "uppercase hex is an acronym" \
   "$(run_write "$mem" 'The FDA and the CDC once used EBCDIC; DEADBEEF is a sentinel.')"
@@ -167,10 +174,13 @@ assert_passed "volatile content outside memory/" \
   "$(run_write "$repo_root/.claude/handoff-task.md" "fixed as of $sha")"
 
 # Ordinary durable-name content in a real memory file is allowed — this
-# repo's own shared-claude.md tier file, unmodified.
+# repo's own shared-claude.md tier file, unmodified. Cut by lines, not by
+# bytes: `head -c` on a file this full of em-dashes splits a UTF-8 sequence
+# the moment an edit upstream shifts the boundary, and jq would then be fed
+# a fragment no assertion here is about.
 assert_passed "real shared-claude.md content" \
   "$(jq -nc --arg p "$repo_root/memory/ddaanet/shared-claude.md" \
-    --arg c "$(head -c 4000 "$repo_root/memory/ddaanet/shared-claude.md")" \
+    --arg c "$(head -n 60 "$repo_root/memory/ddaanet/shared-claude.md")" \
     '{tool_name: "Write", tool_input: {file_path: $p, content: $c}}' | bash "$hook" 2>&1 || true)"
 
 # Real traffic this matcher's script must let through unharmed, even if ever

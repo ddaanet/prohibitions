@@ -49,9 +49,17 @@ tool_name="$(jq -r '.tool_name // ""' <<<"$input")"
 command="$(jq -r '.tool_input.command // ""' <<<"$input")"
 stripped="$(strip_heredocs "$command")"
 stripped="$(sed -E "s/'[^']*'//g; s/\"[^\"]*\"//g" <<<"$stripped")"
+# `\b` is a GNU extension with no POSIX ERE equivalent, so on BSD/macOS grep
+# it is undefined rather than an error — the two matches below would quietly
+# stop firing and the guard would go silent. Spelling the boundary as an
+# explicit non-word class says the same thing everywhere.
+matches_word() { # matches_word <ere-alternation> <text>
+  grep -Eq "(^|[^A-Za-z0-9_])($1)([^A-Za-z0-9_]|\$)" <<<"$2"
+}
+
 grep -Eq -- '(^|[[:space:]])--no-verify([[:space:]]|$)' <<<"$stripped" || exit 0
-grep -Eq '\bgit\b' <<<"$stripped" || exit 0
-grep -Eq '\b(commit|push)\b' <<<"$stripped" || exit 0
+matches_word 'git' "$stripped" || exit 0
+matches_word 'commit|push' "$stripped" || exit 0
 
 cwd="$(jq -r '.cwd // ""' <<<"$input")"
 

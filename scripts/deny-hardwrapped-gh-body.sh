@@ -22,11 +22,19 @@ input="$(cat)"
 tool_name="$(jq -r '.tool_name // ""' <<<"$input")"
 [ "$tool_name" = "Bash" ] || exit 0
 
+# `\b` is a GNU extension with no POSIX ERE equivalent, so on BSD/macOS grep
+# it is undefined rather than an error — every match below would quietly stop
+# firing and the guard would go silent. Spelling the boundary as an explicit
+# non-word class says the same thing everywhere.
+matches_word() { # matches_word <ere-alternation> <text>
+  grep -Eq "(^|[^A-Za-z0-9_])($1)([^A-Za-z0-9_]|\$)" <<<"$2"
+}
+
 command="$(jq -r '.tool_input.command // ""' <<<"$input")"
-grep -Eq '\bgh\b' <<<"$command" || exit 0
-grep -Eq '\b(pr|issue)\b' <<<"$command" || exit 0
-grep -Eq '\b(create|comment|edit|review)\b' <<<"$command" || exit 0
-grep -Eq -- '--body-file\b' <<<"$command" || exit 0
+matches_word 'gh' "$command" || exit 0
+matches_word 'pr|issue' "$command" || exit 0
+matches_word 'create|comment|edit|review' "$command" || exit 0
+grep -Eq -- '--body-file([^A-Za-z0-9_]|$)' <<<"$command" || exit 0
 
 # Emits the violating line number for $1, or 0 if it's clean.
 find_violation_line() {

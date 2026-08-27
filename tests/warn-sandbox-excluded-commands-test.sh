@@ -209,6 +209,37 @@ for needle in 'settings.json' 'parse'; do
   asserts 'unparseable settings.json' systemMessage "$msg" "$needle"
 done
 
+# Parseable but the wrong shape, which is the harder case: the JSON is valid,
+# so it clears the parse gate and only fails when the keys are read. Warning
+# is the only honest answer — the sandbox may be on and the check did not run.
+# `off` and `bad` must stay distinguishable, or the check's silence stops
+# meaning anything.
+home="$(new_home sandbox-not-an-object '{"sandbox": "enabled"}')"
+settings="$home/.claude/settings.json"
+run "$home"
+assert_warn_shape '.sandbox is a string' "$settings"
+asserts '.sandbox is a string' additionalContext "$ctx" 'sandbox is not an object'
+asserts '.sandbox is a string' systemMessage "$msg" 'sandbox is not an object'
+
+home="$(new_home settings-not-an-object '[1, 2]')"
+settings="$home/.claude/settings.json"
+run "$home"
+assert_warn_shape 'settings.json is an array, not an object' "$settings"
+asserts 'settings.json is an array' additionalContext "$ctx" 'not a JSON object'
+
+home="$(new_home excluded-not-a-list \
+  '{"sandbox": {"enabled": true, "excludedCommands": "git:*"}}')"
+settings="$home/.claude/settings.json"
+run "$home"
+assert_warn_shape 'excludedCommands is a string' "$settings"
+asserts 'excludedCommands is a string' additionalContext "$ctx" 'excludedCommands is not a list'
+asserts 'excludedCommands is a string' systemMessage "$msg" 'excludedCommands is not a list'
+
+# `"sandbox": false` is a legitimate way to turn it off, not a shape error.
+home="$(new_home sandbox-false '{"sandbox": false}')"
+run "$home"
+assert_pass '"sandbox": false is off, not malformed'
+
 if (( failures > 0 )); then
   printf '\n%d failure(s)\n' "$failures" >&2
   exit 1

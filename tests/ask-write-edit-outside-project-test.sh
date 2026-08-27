@@ -13,10 +13,15 @@ failures=0
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
   failures=$((failures + 1))
+  return 0
 }
 
+# stderr is merged into the captured output and a non-zero exit swallowed: a
+# pass case asserts the output is empty, so a hook that dies noisily fails the
+# assertion rather than aborting the suite mid-loop under `set -e`.
 run() {  # $1 = tool_name, $2 = file_path
-  jq -nc --arg t "$1" --arg f "$2" '{tool_name: $t, tool_input: {file_path: $f}}' | bash "$hook"
+  jq -nc --arg t "$1" --arg f "$2" '{tool_name: $t, tool_input: {file_path: $f}}' \
+    | bash "$hook" 2>&1 || true
 }
 
 # A real in-project path (the file this test itself lives in) is allowed
@@ -67,6 +72,46 @@ out="$(run "Write" "$TMPDIR/prohibitions-test-scratch.txt")"
 out="$(run "Write" "/tmp/prohibitions-test-scratch.txt")"
 [ -z "$out" ] || fail "bare /tmp path expected pass-through, got: $out"
 
+# Both sides of the scratch comparison are resolved, so a symlinked TMPDIR
+# still matches. This is the shape macOS puts the hook in: there /tmp is a
+# symlink to /private/tmp and $TMPDIR a symlink under /var, so a resolved
+# target compared against an unresolved literal would silently stop matching
+# and every scratch write would ask.
+scratch_root="$(mktemp -d)"
+trap 'rm -rf "$scratch_root"' EXIT
+mkdir -p "$scratch_root/real"
+ln -s "$scratch_root/real" "$scratch_root/link"
+saved_tmpdir="$TMPDIR"
+TMPDIR="$scratch_root/link"
+out="$(run "Write" "$scratch_root/link/note.txt")"
+TMPDIR="$saved_tmpdir"
+[ -z "$out" ] || fail "symlinked TMPDIR path expected pass-through, got: $out"
+
+# Path resolution must not depend on GNU coreutils: BSD/macOS realpath has no
+# -m, and macOS before 12.3 ships no realpath at all, so a hook that reached
+# for it would die under `set -e` on every Write there. Stubs first in PATH
+# that fail whatever they are asked prove the hook resolves paths itself. The
+# assignments are restored by hand rather than prefixed to `run`, because an
+# assignment prefixing a *function* call persists in bash after it returns.
+stub_dir="$scratch_root/stub"
+mkdir -p "$stub_dir"
+for gnuism in realpath readlink; do  # portability-ok: named to be stubbed out
+  cat >"$stub_dir/$gnuism" <<'STUB'
+#!/bin/sh
+echo "$0: illegal option" >&2
+exit 1
+STUB
+  chmod 755 "$stub_dir/$gnuism"
+done
+saved_path="$PATH"
+PATH="$stub_dir:$PATH"
+out="$(run "Write" "$repo_root/CLAUDE.md")"
+outside_out="$(run "Write" "$repo_root/../outside.txt")"
+PATH="$saved_path"
+[ -z "$out" ] || fail "in-project path with GNU path tools stubbed out expected pass-through, got: $out"
+printf '%s' "$outside_out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' \
+  >/dev/null 2>&1 || fail "out-of-project path with GNU path tools stubbed out was not asked: $outside_out"
+
 # Dropping a note in another repo is permitted — the prose forbids editing
 # *in place*. A Write creating a not-yet-existing .md file outside the
 # project passes through; everything else out-of-project still asks.
@@ -101,7 +146,7 @@ done
 # Real traffic this matcher's script must let through unharmed, even if ever
 # mis-wired to a broader matcher: every other tool call passes through silent.
 for t in Bash Read AskUserQuestion; do
-  passthrough="$(jq -nc --arg t "$t" '{tool_name: $t, tool_input: {}}' | bash "$hook")"
+  passthrough="$(jq -nc --arg t "$t" '{tool_name: $t, tool_input: {}}' | bash "$hook" 2>&1 || true)"
   [ -z "$passthrough" ] || fail "[$t] expected pass-through, got: $passthrough"
 done
 

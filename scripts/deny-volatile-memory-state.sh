@@ -62,18 +62,37 @@ else
   frontmatter_scope=0
 fi
 
-# Blank the suppressed lines and the frontmatter block, then the UUIDs. The
-# UUID pass is `sed -E` rather than more awk because interval expressions are
-# not portable in awk; a space, not the empty string, so blanking cannot weld
-# two neighbouring runs into one.
-scanned="$(
+# Blank the suppressed lines and the frontmatter block, then the UUIDs, then
+# emit one word-boundary-delimited token per line. The UUID pass is `sed -E`
+# rather than more awk because interval expressions are not portable in awk;
+# a space, not the empty string, so blanking cannot weld two neighbouring
+# runs into one.
+#
+# The tokenizing pass replaces `grep -oE '\b[0-9a-f]{5,40}\b'`: `\b` is a GNU
+# extension that BSD/macOS grep does not honour, and it fails silently there —
+# `defaced` inside `codefaced` would start matching. Splitting on runs of
+# non-word characters and testing whole tokens is the same boundary rule
+# stated portably, and `length()` stands in for the `{5,40}` interval that old
+# awk cannot parse.
+#
+# Assigned to a variable rather than piped straight into the loop: a process
+# substitution's exit status is never checked, so a failing stage there would
+# silently yield no candidates and pass the write. As an assignment, pipefail
+# plus errexit make that failure loud.
+candidates="$(
   awk -v fm_scope="$frontmatter_scope" -v marker='<!-- hygiene-ok' '
     NR == 1 && fm_scope && $0 == "---" { fm = 1; print ""; next }
     fm { if ($0 == "---") fm = 0; print ""; next }
     index($0, marker) { print ""; next }
     { print }
   ' <<<"$content" \
-    | sed -E 's/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/ /g'
+    | sed -E 's/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/ /g' \
+    | awk '{
+        n = split($0, tok, /[^0-9A-Za-z_]+/)
+        for (i = 1; i <= n; i++)
+          if (length(tok[i]) >= 5 && length(tok[i]) <= 40 && tok[i] ~ /^[0-9a-f]+$/)
+            print tok[i]
+      }'
 )"
 
 # First surviving candidate wins: it is the one the deny reason quotes.
@@ -98,7 +117,7 @@ while IFS= read -r candidate; do
   esac
   hit="$candidate"
   break
-done < <(grep -oE '\b[0-9a-f]{5,40}\b' <<<"$scanned" || true)
+done <<<"$candidates"
 
 [ -n "$hit" ] || exit 0
 

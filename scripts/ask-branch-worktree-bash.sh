@@ -52,14 +52,21 @@ command="$(jq -r '.tool_input.command // ""' <<<"$input")"
 stripped="$(strip_heredocs "$command")"
 stripped="$(sed -E "s/'[^']*'//g; s/\"[^\"]*\"//g" <<<"$stripped")"
 
+# `\b` is a GNU extension with no POSIX ERE equivalent, so on BSD/macOS grep
+# it is undefined rather than an error — every match below would quietly stop
+# firing and the guard would go silent. `W` spells the same boundary in the
+# ERE POSIX guarantees everywhere; the trailing edge is written out as
+# `([^A-Za-z0-9_]|$)` where a subexpression follows it.
+W='(^|[^A-Za-z0-9_])'
+
 trigger=""
-if grep -Eq -- '\bcheckout\b([[:space:]]+-[^[:space:]]+)*[[:space:]]+-[bB]([[:space:]]|$)' <<<"$stripped"; then
+if grep -Eq -- "${W}checkout([[:space:]]+-[^[:space:]]+)*[[:space:]]+-[bB]([[:space:]]|\$)" <<<"$stripped"; then
   trigger="git checkout -b"
-elif grep -Eq -- '\bswitch\b([[:space:]]+-[^[:space:]]+)*[[:space:]]+(-[cC]|--create)([[:space:]]|$)' <<<"$stripped"; then
+elif grep -Eq -- "${W}switch([[:space:]]+-[^[:space:]]+)*[[:space:]]+(-[cC]|--create)([[:space:]]|\$)" <<<"$stripped"; then
   trigger="git switch -c"
-elif grep -Eq -- '\bworktree[[:space:]]+add\b' <<<"$stripped"; then
+elif grep -Eq -- "${W}worktree[[:space:]]+add([^A-Za-z0-9_]|\$)" <<<"$stripped"; then
   trigger="git worktree add"
-elif grep -Eq -- '\bstash[[:space:]]+branch\b' <<<"$stripped"; then
+elif grep -Eq -- "${W}stash[[:space:]]+branch([^A-Za-z0-9_]|\$)" <<<"$stripped"; then
   trigger="git stash branch"
 else
   exit 0

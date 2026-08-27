@@ -12,9 +12,11 @@
 #
 # Mechanical: exact-string membership of the four `<cmd>:*` prefixes in
 # `.sandbox.excludedCommands` — no globbing, the patterns are compared as
-# literals. Silence is the pass signal, so an unparseable settings.json warns
-# rather than passing: a check that could not run must not look like one that
-# ran clean. Residual: only the user-level `~/.claude/settings.json` is read;
+# literals. Silence is the pass signal, so every way of not knowing warns
+# rather than passing — unparseable JSON, a `.sandbox` that is not an object,
+# an `excludedCommands` that is not a list: a check that could not run must
+# not look like one that ran clean. Residual: only the user-level
+# `~/.claude/settings.json` is read;
 # a project or managed settings file setting the same key is not consulted, so
 # this can warn about an exclusion that is in fact in force.
 set -euo pipefail
@@ -39,7 +41,39 @@ If the sandbox is enabled, run git, find, ls and claude -p with dangerouslyDisab
     "prohibitions: could not parse $settings — sandbox excludedCommands left unchecked"
 fi
 
-jq -e '.sandbox.enabled == true' "$settings" >/dev/null 2>&1 || exit 0
+# Three outcomes, not two. A bare `jq -e '.sandbox.enabled == true' || exit 0`
+# collapses "sandbox off" and "jq could not evaluate this" into the same
+# silent pass — and a wrong-typed `.sandbox` is valid JSON, so it clears the
+# parse gate above and only fails here. Naming the third outcome is what keeps
+# the check's silence meaningful.
+# Each wrong shape is classified inside jq rather than left to blow up, so
+# the only thing on stderr is a real jq failure: the top-level type is checked
+# before `.sandbox` is indexed, and `.sandbox`'s before `.excludedCommands`
+# is. The `||` is the belt-and-braces for anything unforeseen, not the
+# mechanism.
+state="$(jq -r '
+  if type != "object" then "bad-settings"
+  elif .sandbox == null or .sandbox == false then "off"
+  elif (.sandbox | type) != "object" then "bad-sandbox"
+  elif .sandbox.enabled != true then "off"
+  elif ((.sandbox.excludedCommands // []) | type) != "array" then "bad-excluded"
+  else "on"
+  end' "$settings")" || state="bad-settings"
+
+case "$state" in
+  off) exit 0 ;;
+  on) ;;
+  *)
+    case "$state" in
+      bad-excluded) detail="sandbox.excludedCommands is not a list" ;;
+      bad-sandbox) detail="sandbox is not an object" ;;
+      *) detail="the file is not a JSON object" ;;
+    esac
+    warn "In $settings, $detail, so the sandbox exclusion check could not run.
+If the sandbox is enabled, run git, find, ls and claude -p with dangerouslyDisableSandbox: true until that key is fixed — sandboxed, git/find/ls see phantom dotfiles (user-home dotfiles bind-mounted to /dev/null show up as untracked character devices) and a sandboxed claude -p silently drops every SessionStart hook." \
+      "prohibitions: $settings — $detail, sandbox excludedCommands left unchecked"
+    ;;
+esac
 
 # The four sandbox-sensitive prefixes, inline in the jq program that reads
 # them. Array subtraction is exact-string membership and preserves the order
