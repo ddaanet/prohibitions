@@ -86,7 +86,7 @@ gh pr create --body-file /tmp/x/my\ draft.md    → PASS
 gh pr create --body-file="/tmp/x/my draft.md"   → PASS
 ```
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Four cases in `tests/deny-hardwrapped-gh-body-test.sh`, next to the existing
 `--body-file=` case around line 125. Build a wrapped fixture at a path with
@@ -96,12 +96,12 @@ quoted spellings. Add a matching pass case: a *clean* body at a spaced path
 must still pass, so the test distinguishes "the hook now sees the file" from
 "the hook now denies everything".
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Use the red recipe from Global Constraints.
 Expected: 3 failures, each `wrapped body was not denied:` with empty output.
 
-- [ ] **Step 3: Implement the quote-aware extraction**
+- [x] **Step 3: Implement the quote-aware extraction**
 
 Replace the extraction pattern with an alternation covering the three real
 spellings — a double-quoted run, a single-quoted run, or a run of non-space
@@ -118,14 +118,14 @@ backslash escapes (`\"`, `\\`) are left as written, because a space is the
 only one that silently defeated the extraction, and an over-eager unescape
 would corrupt a path that legitimately contains a backslash.
 
-- [ ] **Step 4: Run the full suite**
+- [x] **Step 4: Run the full suite**
 
 Run: `just precommit`
 Expected: every suite passes, including the existing `--body-file` with no
 argument case (line 89) and the missing-file case (line 139), both of which
 exercise the same loop.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/deny-hardwrapped-gh-body.sh tests/deny-hardwrapped-gh-body-test.sh docs/changelog.md
@@ -156,7 +156,7 @@ cwd=/tmp/x, hook run from /tmp/x → deny
 `scripts/deny-no-verify.sh` already reads `.cwd` for its message, so the
 field is known to be present; it is simply unused here.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 A wrapped fixture at `$work/rel/wrapped.md`, a payload whose command is
 `gh pr create --body-file wrapped.md` and whose `cwd` is `$work/rel`, run
@@ -164,11 +164,11 @@ with the test's own cwd left at the repo root. Assert `deny`. The existing
 `run()` helper does not set `cwd`, so this needs a variant that does — add
 `run_cwd() { jq -nc --arg c "$1" --arg d "$2" '{tool_name: "Bash", tool_input: {command: $c}, cwd: $d}' | bash "$hook" 2>&1 || true; }`.
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Expected: `wrapped body was not denied:` with empty output.
 
-- [ ] **Step 3: Resolve relative paths against the payload cwd**
+- [x] **Step 3: Resolve relative paths against the payload cwd**
 
 Read `cwd="$(jq -r '.cwd // ""' <<<"$input")"` alongside `command`, and in
 the loop, before the `-f` test:
@@ -187,13 +187,13 @@ edit that moves it to the end of a function. Comment why: a hook process's
 cwd is the live session cwd, which is *usually* right and silently is not
 whenever the session has moved — the payload field is the authoritative one.
 
-- [ ] **Step 4: Run the full suite**
+- [x] **Step 4: Run the full suite**
 
 Run: `just precommit`
 Expected: all pass. The existing absolute-path cases are unaffected because
 the `case` leaves `/*` alone.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/deny-hardwrapped-gh-body.sh tests/deny-hardwrapped-gh-body-test.sh docs/changelog.md
@@ -223,7 +223,7 @@ fix: (cd  && claude -p ping)
 shared-claude: *commands printed for a human to run must be
 verbatim-runnable; substitute every real path.*
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Two cases in `tests/deny-no-verify-test.sh`. First: a payload with
 `cwd: "/tmp/my repo"`, asserting the `systemMessage` contains
@@ -232,24 +232,24 @@ key at all, asserting the message still names `claude -p ping` and does
 *not* contain the empty `(cd  &&`. The existing `run()` hardcodes
 `$repo_root` as cwd, so both need a payload built inline.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Expected: 2 failures — the first on the missing quotes, the second on the
 malformed `(cd  &&`.
 
-- [ ] **Step 3: Quote the path, and drop the clause when there is no cwd**
+- [x] **Step 3: Quote the path, and drop the clause when there is no cwd**
 
 Single-quote the substituted path in the message. When `$cwd` is empty, emit
 the recovery hint without the `cd` — `claude -p ping` in the repo — rather
 than a command that cannot run. Keep the message on one line.
 
-- [ ] **Step 4: Run the full suite**
+- [x] **Step 4: Run the full suite**
 
 Run: `just precommit`
 Expected: all pass, including the existing assertion that `systemMessage`
 contains `claude -p ping` (line 33).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/deny-no-verify.sh tests/deny-no-verify-test.sh docs/changelog.md
@@ -312,7 +312,7 @@ Verified verdicts for the helper:
 | `memory/ddaanet/x.md` | deny |
 | `plugin-dev/memory/x.md` | pass |
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `tests/deny-plugin-dev-edit-test.sh`: a bare relative
 `plugin-dev/release.just` must deny (run with the test's cwd at the repo
@@ -327,12 +327,12 @@ In `tests/deny-volatile-memory-state-test.sh`: a bare relative
 `$(mktemp -d)/memory/x.md` carrying a sha must pass. Keep the existing
 "volatile content outside memory/" case.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Expected: the relative cases fail as "expected deny, got: " (empty), and the
 nested/no-repo cases fail as "expected pass-through, got: {…deny…}".
 
-- [ ] **Step 3: Implement the anchor in both scripts**
+- [x] **Step 3: Implement the anchor in both scripts**
 
 Apply the `case` + `[ -e "$parent/.git" ]` shape above in each script,
 substituting the literal segment (`plugin-dev`, `memory`). In
@@ -343,7 +343,7 @@ Note in a comment that the relative branch (`parent="."`) resolves against
 the hook process's cwd, which CC sets to the live session cwd; that is the
 best available answer for a path the model emitted relative to it.
 
-- [ ] **Step 4: Update the two matcher-table rows and both header comments**
+- [x] **Step 4: Update the two matcher-table rows and both header comments**
 
 `docs/design.md` Architecture table: the `plugin-dev` row currently reads
 "path matches `*/plugin-dev/*`" and the memory row "`Write|Edit` on
@@ -351,7 +351,7 @@ best available answer for a path the model emitted relative to it.
 comments claim "any absolute path with a `plugin-dev` path component" and
 similar — the absolute-path assumption is false in practice and must go.
 
-- [ ] **Step 5: Add a Design decisions entry for the anchor**
+- [x] **Step 5: Add a Design decisions entry for the anchor**
 
 `docs/design.md` is the *only* home for this rationale — it was considered
 for the `ddaanet` memory tier and rejected there, because how a repo's own
@@ -367,12 +367,12 @@ the path relative to the *submodule's* root, so a store mounted at
 occurrence is the tree root by construction). Include the verdict table from
 this task's contract section — it is the spec for the tests.
 
-- [ ] **Step 6: Run the full suite**
+- [x] **Step 6: Run the full suite**
 
 Run: `just precommit`
 Expected: all pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add scripts/deny-plugin-dev-edit.sh scripts/deny-volatile-memory-state.sh \
@@ -411,7 +411,7 @@ This is a refactor with no behaviour change, so it has no red step. Its
 correctness check is that the suite stays green and the diff contains only
 the four mechanical edits.
 
-- [ ] **Step 1: Sweep each file**
+- [x] **Step 1: Sweep each file**
 
 Per file: add `return 0` to `fail()`; add `2>&1 || true` to the `run()`
 helper's pipeline (several already have `2>&1` — add only what is missing);
@@ -424,19 +424,19 @@ in one place. Copy the explanatory comment from
 `tests/deny-ask-user-question-test.sh` build payloads inline rather than
 through a `run()` that needs changing — check each call site individually.
 
-- [ ] **Step 2: Verify the convention actually catches a dying hook**
+- [x] **Step 2: Verify the convention actually catches a dying hook**
 
 Temporarily add `exit 3` to the top of one script, run its test, and confirm
 it reports a FAIL rather than aborting the suite. Revert the `exit 3`.
 This is the only evidence that the sweep did what it claims — a green run
 proves nothing about a failure path.
 
-- [ ] **Step 3: Run the full suite**
+- [x] **Step 3: Run the full suite**
 
 Run: `just precommit`
 Expected: all pass, unchanged from before the sweep.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tests/ docs/changelog.md
@@ -453,19 +453,19 @@ git commit -m "test: apply the stderr-capture convention to the six remaining su
 **Interfaces:**
 - Consumes: Tasks 1–5 are all landed. Produces: nothing.
 
-- [ ] **Step 1: Add a Limitations entry for what the audit did not cover**
+- [x] **Step 1: Add a Limitations entry for what the audit did not cover**
 
 `plugin-dev/` is a vendored subtree and was not audited — findings there
 belong in the claude-plugin-dev source repo, not here. Say so, so a later
 reader does not mistake its absence for a clean bill.
 
-- [ ] **Step 2: Verify the matcher table matches the shipped scripts**
+- [x] **Step 2: Verify the matcher table matches the shipped scripts**
 
 Re-read the Architecture table row by row against `hooks/hooks.json` and the
 `case` statements in `scripts/`. Task 4 changed two rows; confirm nothing
 else drifted during this plan.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add docs/design.md docs/changelog.md
