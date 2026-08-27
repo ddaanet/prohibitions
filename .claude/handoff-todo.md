@@ -1,10 +1,9 @@
 ## Open decisions
 
-- Whether to `just release minor` now: three hooks landed since the last release (`deny-git-add-all`, the widened `deny-volatile-memory-state`, the `SessionStart` `warn-sandbox-excluded-commands`); none is live in consuming repos until released. Release runs unsandboxed (marketplace bump fails sandboxed).
+- Whether to `just release minor`. Four hooks' worth of change now sits unreleased — `deny-git-add-all`, the widened `deny-volatile-memory-state`, the `SessionStart` `warn-sandbox-excluded-commands`, and the macOS/BSD portability pass — and none of it reaches consuming repos until released. Release runs unsandboxed; the marketplace bump fails sandboxed. Landing the audit plan first would put it all in one release.
+- `memory/MEMORY.md` is 27302 bytes, past both gitlore's 25600-byte advisory budget and Claude Code's 24.4KB loader cap, so entries beyond the cutoff never reach a session at all. The fix is retiring entries, not shortening lines — shortening under-triggers the facts it shortens. Which entries retire is the open question.
 
 ## Remaining
 
-- `deny-git-add-all.sh`: quoted bare dot (`git add "."`, `git add '.'`) still passes — only `'*'`/`':/'` are unwrapped before quote stripping. Test first, then add `'.'`/`"."`/`'./'` to the unwrap list.
-- `deny-volatile-memory-state.sh`: frontmatter fence matched as exact `---`; gitlore's gate uses `strip()`, so a `--- ` with trailing whitespace keeps blanking to EOF here (fails closed, under-reports). Align or leave, with a test either way.
-- `memory/ddaanet/sandbox-effects.md` still names the retired `unsandbox-git-status` hook as an escape; the replacement is `sandbox.excludedCommands` in `~/.claude/settings.json`, checked at SessionStart by this plugin.
-- `memory/ddaanet/MEMORY.md` has a stale pointer `auto-mode-classifier-vs-hook-ask.md` naming no file in the tier (gitlore SessionStart warning); drop or redirect it.
+- `deny-git-add-all.sh`: a quoted bare dot (`git add "."`, `git add '.'`) still passes — only `'*'` and `':/'` are unwrapped ahead of quote stripping. Confirmed by probe. Write the test first, then add `'.'`/`"."`/`'./'` to the unwrap list.
+- `deny-volatile-memory-state.sh`: the frontmatter fence is matched as an exact `---`, while gitlore's `check-memory-hygiene.py` uses `strip()`. A `--- ` with trailing whitespace therefore keeps blanking to EOF here, so the hook fails closed and under-reports. Align with gitlore or diverge deliberately, with a test either way.

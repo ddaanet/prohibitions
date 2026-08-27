@@ -351,12 +351,28 @@ best available answer for a path the model emitted relative to it.
 comments claim "any absolute path with a `plugin-dev` path component" and
 similar — the absolute-path assumption is false in practice and must go.
 
-- [ ] **Step 5: Run the full suite**
+- [ ] **Step 5: Add a Design decisions entry for the anchor**
+
+`docs/design.md` is the *only* home for this rationale — it was considered
+for the `ddaanet` memory tier and rejected there, because how a repo's own
+code anchors a path matcher is that repo's encoding of the mechanism, not a
+portable fact. So the entry has to carry the whole argument, under a heading
+like "Tree-root anchoring by `.git` adjacency": why not `CLAUDE_PROJECT_DIR`
+(frozen at the launch repo by `EnterWorktree`, while CC worktrees live at
+`.claude/worktrees/<name>` *inside* it, so a root-anchored comparison stops
+guarding in every worktree), why not `git rev-parse --show-prefix` (returns
+the path relative to the *submodule's* root, so a store mounted at
+`<root>/memory/` yields `''` and the segment vanishes), why `-e` and not
+`-d` (a linked worktree's `.git` is a gitlink file), and why `%%` (outermost
+occurrence is the tree root by construction). Include the verdict table from
+this task's contract section — it is the spec for the tests.
+
+- [ ] **Step 6: Run the full suite**
 
 Run: `just precommit`
 Expected: all pass.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add scripts/deny-plugin-dev-edit.sh scripts/deny-volatile-memory-state.sh \
