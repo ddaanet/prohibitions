@@ -5,18 +5,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 `prohibitions@ddaanet` — a Claude Code plugin, published in the `ddaanet`
-marketplace (`ddaanet/claude-plugins`), that holds PreToolUse hooks
-intercepting ddaanet behavioural rules at the moment of action instead of
-carrying them as always-on prose. The rules being converted currently live in
+marketplace (`ddaanet/claude-plugins`), that holds hooks (PreToolUse, plus
+one SessionStart check) intercepting ddaanet behavioural rules at the moment
+of action instead of carrying them as always-on prose. The rules being
+converted currently live in
 `/Users/david/code/gitlore/memory/ddaanet/shared-claude.md`, the tier every
 ddaanet repo's `CLAUDE.md` imports; every line there is paid by every session
 in every one of those repos, while a hook is paid only when the situation
 arises.
 
-**Status: all seven hooks implemented.** `hooks/hooks.json` wires up all
-seven PreToolUse hooks from the brief, each with a script in `scripts/` and
-an end-to-end test in `tests/`. The living design — full matcher table,
-design decisions with rationale, rejected alternatives — is
+**Status: implemented.** `hooks/hooks.json` wires up the seven PreToolUse
+hooks from the bootstrap brief plus two later ones — `deny-git-add-all` and
+the `SessionStart` check `warn-sandbox-excluded-commands` — each with a
+script in `scripts/` and an end-to-end test in `tests/`. The living design
+— full matcher table, design decisions with rationale, rejected
+alternatives — is
 `docs/design.md`; read it before touching a hook here. The original
 bootstrap brief is `plans/brief-prohibitions-plugin-bootstrap.md`. The
 rationale for *which* rules convert to hooks vs. stay prose is in
@@ -44,7 +47,7 @@ just update-plugin-dev vX.Y.Z      # pull a newer plugin-dev/ toolkit version
   (currently v0.5.0). Read-only: never hand-edit it. Changes go to the
   source repo, get tagged, then pulled in here with `just
   update-plugin-dev`.
-- **`hooks/hooks.json`**, **`scripts/`**, **`tests/`** — the seven rules'
+- **`hooks/hooks.json`**, **`scripts/`**, **`tests/`** — the rules'
   wiring, one script per hook, one end-to-end test per script. Full matcher
   table and rationale: `docs/design.md`.
 - **`docs/design.md`** — living rationale for every design decision. States

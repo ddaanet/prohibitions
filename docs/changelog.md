@@ -4,6 +4,18 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-08-27** — New hook `warn-sandbox-excluded-commands.sh`, the
+  plugin's first non-`PreToolUse` rule: at `SessionStart` it checks that
+  `~/.claude/settings.json` excludes `git:*`, `find:*`, `ls:*` and
+  `claude:*` from the harness sandbox, and warns on both channels
+  (`additionalContext` for the agent, `systemMessage` for the human)
+  naming only the patterns actually missing. Sandboxed, `git`/`find`/`ls`
+  see phantom dotfiles and `claude -p` silently drops SessionStart hooks;
+  the harness's own exclusion list fixes that while the auto-mode
+  classifier still vets the commands, so the plugin checks the setting
+  rather than blocking the calls. An unparseable settings.json warns
+  rather than passing. Replaces the retired `unsandbox-git-status`
+  plugin; rationale in `docs/design.md`.
 - **2026-08-27** — `deny-volatile-memory-state.sh` widened from full
   40-hex shas to `\b[0-9a-f]{5,40}\b`: the old scope had zero true
   positives available to it in a real 165-file store while missing four

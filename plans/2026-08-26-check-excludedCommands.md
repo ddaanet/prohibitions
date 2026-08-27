@@ -1,0 +1,1 @@
+On startup, check ~/.claude/settings.json for excludedCommands, must cover git:*, ls:*, find:*, claude:*. The most common commands that are sandbox sensitive. That forces the dangerouslyDisableSandbox flag for those commands, while still allowing the auto-mode classifier to reject dangerous commands.

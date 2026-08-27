@@ -14,10 +14,10 @@ one of those repos, whether or not the situation it addresses ever
 arises.
 
 A subset of those rules has a clean mechanical detection: a specific
-tool call, a specific command shape. For that subset, a `PreToolUse`
-hook that blocks at the moment of action is paid only when the
-situation arises, and its denial message teaches more reliably than
-remembered prose.
+tool call, a specific command shape, a specific setting. For that
+subset, a hook that acts at the moment of action — `PreToolUse` except
+where noted — is paid only when the situation arises, and its denial
+message teaches more reliably than remembered prose.
 
 Roughly two thirds of `shared-claude.md` is judgement with no
 mechanical trigger and stays prose — this plugin does not aim to
@@ -28,8 +28,9 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
 
 ### Functional
 
-- One `PreToolUse` hook per rule in scope, denying or asking per the
-  rule's own contract (see Architecture below for the current set).
+- One hook per rule in scope — `PreToolUse` except where noted —
+  denying, asking or warning per the rule's own contract (see
+  Architecture below for the current set).
 - Each hook's denial/ask message carries the recovery detail the prose
   it replaces used to carry — e.g. the `--no-verify` block names the
   stale-push-hook recovery (`(cd <repo> && claude -p ping)`), not just
@@ -63,7 +64,7 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
   `.version` reflects the *last released* version; a `PreToolUse` hook
   from the vendored toolkit (`plugin-dev/version-guard.sh`) refuses
   direct edits to it, so only `just release` can bump it.
-- **`hooks/hooks.json`** — wires eight rules to nine scripts (branch/worktree
+- **`hooks/hooks.json`** — wires nine rules to ten scripts (branch/worktree
   creation needs two scripts to cover both its `Bash` and
   `EnterWorktree` matchers):
 
@@ -78,10 +79,11 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
   | No volatile git state in memory files | `Write\|Edit` on `memory/**.md`, `` `[0-9a-f]{5,40}` `` minus digits/hex-words/frontmatter/UUIDs/`hygiene-ok` lines | deny | `deny-volatile-memory-state.sh` |
   | GitHub bodies are not hard-wrapped | `Bash` on `gh pr\|issue create\|comment\|edit\|review` with `--body-file` | deny | `deny-hardwrapped-gh-body.sh` |
   | No whole-tree `git add` | `Bash` (`git add -A/--all/./:/`, `*`) | deny | `deny-git-add-all.sh` |
+  | Never run sandboxed `git`/`find`/`ls`/`claude -p` | `SessionStart`, checks `~/.claude/settings.json` `sandbox.excludedCommands` ⊇ `git:*`, `find:*`, `ls:*`, `claude:*` | **warn** (`additionalContext` + `systemMessage`) | `warn-sandbox-excluded-commands.sh` |
 
 - **`scripts/*.sh` + `tests/*-test.sh`** — one script per hook, one
-  end-to-end test per script, driven by synthetic `PreToolUse` JSON
-  payloads through `jq`. `just precommit` runs `shellcheck`, `bash -n`,
+  end-to-end test per script, driven by synthetic hook JSON payloads
+  through `jq`. `just precommit` runs `shellcheck`, `bash -n`,
   and every `tests/*-test.sh`.
 - **`plugin-dev/`** — the `claude-plugin-dev` release toolkit, vendored
   via `git subtree`, pinned to a tag. Read-only; see its own
@@ -97,7 +99,7 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
 
 ### Ask, not deny, for branch/worktree creation and off-project edits
 
-Two of the eight rules cannot be `deny`: merging onto a base my human
+Two of the eight `PreToolUse` rules cannot be `deny`: merging onto a base my human
 partner named is executing their instruction, not originating a branch
 switch, and filing a brief in another repo is legitimate — only *edits*
 there are forbidden. A hook that denies either blocks legitimate work,
@@ -213,9 +215,41 @@ blanks UUIDs inside the body, not just inside frontmatter, because an
 frontmatter boundary to detect — gitlore always sees the whole file and
 does not need it.
 
+### A SessionStart check for sandbox exclusions, not a PreToolUse guard
+
+The prohibition is "never run sandboxed `git`, `find`, `ls` or `claude
+-p`": sandboxed, the first three see phantom dotfiles — user-home
+dotfiles bind-mounted to `/dev/null` show up as untracked character
+devices — and a sandboxed `claude -p` silently drops every SessionStart
+hook. A `PreToolUse` deny would strand every such call, which is most
+of them. The harness already has the right mechanism: its own
+`sandbox.excludedCommands` runs those commands unsandboxed
+automatically, while the auto-mode classifier still vets them for
+danger. So the plugin has nothing to block — it only has to check the
+setting is present, once, at session start, and say what is missing.
+This replaces the retired `unsandbox-git-status` plugin.
+
+The exclusion is `git:*`, not `git status`-shaped patterns. Mutating
+git commands must run unsandboxed to succeed at all; the
+dotfile-sensitive reads (`status`, `add`, `ls-files`) must run
+unsandboxed to be *truthful*; and the remaining harmless git commands
+pay only an unnecessary auto-classifier call. That is the price of a
+prefix exclusion, and it buys coverage of variants like `git -C X
+status` that an enumerated list would miss.
+
+Silence is the pass signal, so the failure paths are loud: an
+unparseable `settings.json` warns instead of passing, because a check
+that could not run must not look like one that ran clean. The warning
+reaches both channels — `additionalContext` tells the agent to pass
+`dangerouslyDisableSandbox` until the setting is fixed, `systemMessage`
+tells the human who owns the file, naming only the patterns actually
+missing. Residual: only the user-level `~/.claude/settings.json` is
+read; project or managed settings that set the same key are not
+consulted.
+
 ### Deny output is stdout + exit 0, never stderr + exit 2
 
-All nine scripts emit their `hookSpecificOutput` JSON on stdout with
+All ten scripts emit their `hookSpecificOutput` JSON on stdout with
 exit 0, including deny decisions. `exit 2` is a valid deny mechanism but
 carries no `ask` capability and no `systemMessage` channel for a
 human-facing summary distinct from the agent-facing reason — using the
