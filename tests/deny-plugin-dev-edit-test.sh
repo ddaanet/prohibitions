@@ -12,16 +12,20 @@ failures=0
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
   failures=$((failures + 1))
+  return 0
 }
 
+# stderr is merged into the captured output and a non-zero exit swallowed: a
+# pass case asserts the output is empty, so a hook that dies noisily fails the
+# assertion rather than aborting the suite mid-loop under `set -e`.
 run() {  # $1 = tool_name, $2 = file_path. Deny path writes JSON to stdout, exit 0.
-  jq -nc --arg t "$1" --arg f "$2" '{tool_name: $t, tool_input: {file_path: $f}}' | bash "$hook" 2>&1
+  jq -nc --arg t "$1" --arg f "$2" '{tool_name: $t, tool_input: {file_path: $f}}' | bash "$hook" 2>&1 || true
 }
 
 # A real file inside this repo's own vendored subtree is denied.
 target="$repo_root/plugin-dev/release.just"
 for t in Write Edit; do
-  out="$(run "$t" "$target")" || true
+  out="$(run "$t" "$target")"
   printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' \
     >/dev/null 2>&1 || fail "[$t] plugin-dev/ path was not denied: $out"
   [ -n "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""')" ] \
@@ -48,6 +52,9 @@ out="$(run "Write" "$repo_root/plugin-dev-notes/file.txt")"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
+# stderr is merged into the captured output and a non-zero exit swallowed: a
+# pass case asserts the output is empty, so a hook that dies noisily fails the
+# assertion rather than aborting the suite mid-loop under `set -e`.
 run_in() {  # $1 = cwd, $2 = tool_name, $3 = file_path
   jq -nc --arg t "$2" --arg f "$3" '{tool_name: $t, tool_input: {file_path: $f}}' \
     | (cd "$1" && bash "$hook") 2>&1 || true
@@ -65,7 +72,7 @@ printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' \
 # CLAUDE_PROJECT_DIR.
 mkdir -p "$work/wt/plugin-dev"
 printf 'gitdir: %s/.git/worktrees/probe\n' "$repo_root" >"$work/wt/.git"
-out="$(run Write "$work/wt/plugin-dev/release.just")" || true
+out="$(run Write "$work/wt/plugin-dev/release.just")"
 printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' \
   >/dev/null 2>&1 || fail "worktree gitlink-file root was not denied: $out"
 
@@ -82,7 +89,7 @@ out="$(run Write "$work/loose/plugin-dev/x.sh")"
 # Real traffic this matcher's script must let through unharmed, even if ever
 # mis-wired to a broader matcher: every other tool call passes through silent.
 for t in Bash Read AskUserQuestion; do
-  passthrough="$(jq -nc --arg t "$t" '{tool_name: $t, tool_input: {}}' | bash "$hook")"
+  passthrough="$(jq -nc --arg t "$t" '{tool_name: $t, tool_input: {}}' | bash "$hook" 2>&1 || true)"
   [ -z "$passthrough" ] || fail "[$t] expected pass-through, got: $passthrough"
 done
 

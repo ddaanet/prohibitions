@@ -15,10 +15,14 @@ failures=0
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
   failures=$((failures + 1))
+  return 0
 }
 
+# stderr is merged into the captured output and a non-zero exit swallowed: a
+# pass case asserts the output is empty, so a hook that dies noisily fails the
+# assertion rather than aborting the suite mid-loop under `set -e`.
 run() {  # $1 = command
-  jq -nc --arg c "$1" '{tool_name: "Bash", tool_input: {command: $c}}' | bash "$hook" 2>&1
+  jq -nc --arg c "$1" '{tool_name: "Bash", tool_input: {command: $c}}' | bash "$hook" 2>&1 || true
 }
 
 run_cwd() {  # $1 = command, $2 = payload cwd
@@ -29,7 +33,7 @@ run_cwd() {  # $1 = command, $2 = payload cwd
 # A hard-wrapped paragraph in a real gh pr create --body-file is denied.
 wrapped="$work/wrapped.md"
 printf 'Summary\n\nThis line wraps into the next physical line without a\nblank line between them, which GitHub renders with a <br>.\n' >"$wrapped"
-out="$(run "gh pr create --title x --body-file $wrapped")" || true
+out="$(run "gh pr create --title x --body-file $wrapped")"
 printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' \
   >/dev/null 2>&1 || fail "wrapped body was not denied: $out"
 printf '%s' "$out" | jq -e --arg f "$wrapped" '.hookSpecificOutput.permissionDecisionReason | contains($f)' \
@@ -38,7 +42,7 @@ printf '%s' "$out" | jq -e --arg f "$wrapped" '.hookSpecificOutput.permissionDec
   || fail "deny carried no systemMessage for the human"
 
 # The same check on gh issue comment --body-file.
-out="$(run "gh issue comment 42 --body-file $wrapped")" || true
+out="$(run "gh issue comment 42 --body-file $wrapped")"
 printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' \
   >/dev/null 2>&1 || fail "wrapped issue comment body was not denied: $out"
 
@@ -50,7 +54,7 @@ for cmd in \
   "gh issue create --title x --body-file $wrapped" \
   "gh pr review 42 --approve --body-file $wrapped"
 do
-  out="$(run "$cmd")" || true
+  out="$(run "$cmd")"
   printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' \
     >/dev/null 2>&1 || fail "[$cmd] wrapped body was not denied: $out"
 done
@@ -98,7 +102,7 @@ out="$(run 'gh pr create --title x --body-file')"
 # files, not just the first — a wrapped second file must still be denied.
 clean_first="$work/clean-first.md"
 printf 'Summary\n\nOne physical line, no wrap.\n' >"$clean_first"
-out="$(run "gh issue create --title x --body-file $clean_first && gh pr create --title y --body-file $wrapped")" || true
+out="$(run "gh issue create --title x --body-file $clean_first && gh pr create --title y --body-file $wrapped")"
 printf '%s' "$out" | jq -e --arg f "$wrapped" '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains($f))' \
   >/dev/null 2>&1 || fail "wrapped second body-file in a chained command was not denied: $out"
 
@@ -187,7 +191,7 @@ out="$(run "gh pr create --title x --body-file $work/missing.md")"
 # Real traffic this matcher's script must let through unharmed, even if ever
 # mis-wired to a broader matcher: every other tool call passes through silent.
 for t in Write Edit Read AskUserQuestion; do
-  passthrough="$(jq -nc --arg t "$t" '{tool_name: $t, tool_input: {}}' | bash "$hook")"
+  passthrough="$(jq -nc --arg t "$t" '{tool_name: $t, tool_input: {}}' | bash "$hook" 2>&1 || true)"
   [ -z "$passthrough" ] || fail "[$t] expected pass-through, got: $passthrough"
 done
 

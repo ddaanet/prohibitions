@@ -4,6 +4,15 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-08-27** — The capture convention now holds in all ten test
+  files. The six that had it partially or not at all — `fail()` without
+  a trailing `return 0`, a `run()` helper without `2>&1 || true`, a
+  `passthrough=` substitution with neither, and `|| true` scattered
+  across some call sites but not others — are swept. Verified rather
+  than assumed: with `exit 3` at the top of `ask-enter-worktree.sh` the
+  old suite aborted at the first case with no output at all, naming
+  nothing; the swept one reports nine FAILs and exits through the normal
+  failure path.
 - **2026-08-27** — `deny-plugin-dev-edit.sh` and
   `deny-volatile-memory-state.sh` anchor their path segment to a git
   tree root, tested by `.git` adjacency. `*/<segment>/*` was wrong at

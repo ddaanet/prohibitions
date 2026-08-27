@@ -12,14 +12,18 @@ failures=0
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
   failures=$((failures + 1))
+  return 0
 }
 
+# stderr is merged into the captured output and a non-zero exit swallowed: a
+# pass case asserts the output is empty, so a hook that dies noisily fails the
+# assertion rather than aborting the suite mid-loop under `set -e`.
 run() {  # $1 = tool_name. Deny path writes JSON to stdout, exit 0.
-  jq -nc --arg t "$1" '{tool_name: $t, tool_input: {}}' | bash "$hook" 2>&1
+  jq -nc --arg t "$1" '{tool_name: $t, tool_input: {}}' | bash "$hook" 2>&1 || true
 }
 
 # AskUserQuestion is always denied.
-out="$(run "AskUserQuestion")" || true
+out="$(run "AskUserQuestion")"
 printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' \
   >/dev/null 2>&1 || fail "AskUserQuestion call was not denied: $out"
 [ -n "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""')" ] \

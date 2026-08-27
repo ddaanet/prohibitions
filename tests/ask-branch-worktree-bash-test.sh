@@ -12,10 +12,14 @@ failures=0
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
   failures=$((failures + 1))
+  return 0
 }
 
+# stderr is merged into the captured output and a non-zero exit swallowed: a
+# pass case asserts the output is empty, so a hook that dies noisily fails the
+# assertion rather than aborting the suite mid-loop under `set -e`.
 run() {  # $1 = command
-  jq -nc --arg c "$1" '{tool_name: "Bash", tool_input: {command: $c}}' | bash "$hook"
+  jq -nc --arg c "$1" '{tool_name: "Bash", tool_input: {command: $c}}' | bash "$hook" 2>&1 || true
 }
 
 # Real must-ask traffic: the three creation forms named in the brief, plus
@@ -92,7 +96,7 @@ out="$(run "$heredoc_cmd")"
 # Real traffic this matcher's script must let through unharmed, even if ever
 # mis-wired to a broader matcher: every other tool call passes through silent.
 for t in Write Edit Read AskUserQuestion EnterWorktree; do
-  passthrough="$(jq -nc --arg t "$t" '{tool_name: $t, tool_input: {}}' | bash "$hook")"
+  passthrough="$(jq -nc --arg t "$t" '{tool_name: $t, tool_input: {}}' | bash "$hook" 2>&1 || true)"
   [ -z "$passthrough" ] || fail "[$t] expected pass-through, got: $passthrough"
 done
 
