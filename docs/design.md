@@ -99,11 +99,11 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
   | --- | --- | --- | --- |
   | Never call `AskUserQuestion` | tool name `AskUserQuestion` | deny | `deny-ask-user-question.sh` |
   | Other repos stay read-only | `Write\|Edit`, path outside `CLAUDE_PROJECT_DIR`; new `.md` via `Write` exempt | **ask** | `ask-write-edit-outside-project.sh` |
-  | Never hand-edit a vendored subtree | `Write\|Edit`, path matches `*/plugin-dev/*` | deny | `deny-plugin-dev-edit.sh` |
+  | Never hand-edit a vendored subtree | `Write\|Edit`, a `plugin-dev` segment at a git tree root (`.git`-adjacent) | deny | `deny-plugin-dev-edit.sh` |
   | Never `--no-verify` | `Bash`, regex over `git commit`/`git push` | deny | `deny-no-verify.sh` |
   | Never create/switch branches or worktrees | `Bash` (`checkout -b`, `switch -c`, `worktree add`, `stash branch`) | **ask** | `ask-branch-worktree-bash.sh` |
   | ″ | `EnterWorktree` | **ask** | `ask-enter-worktree.sh` |
-  | No volatile git state in memory files | `Write\|Edit` on `memory/**.md`, `` `[0-9a-f]{5,40}` `` minus digits/hex-words/frontmatter/UUIDs/`hygiene-ok` lines | deny | `deny-volatile-memory-state.sh` |
+  | No volatile git state in memory files | `Write\|Edit` on `*.md` under a `memory` segment at a git tree root (`.git`-adjacent), `` `[0-9a-f]{5,40}` `` minus digits/hex-words/frontmatter/UUIDs/`hygiene-ok` lines | deny | `deny-volatile-memory-state.sh` |
   | GitHub bodies are not hard-wrapped | `Bash` on `gh pr\|issue create\|comment\|edit\|review` with `--body-file` | deny | `deny-hardwrapped-gh-body.sh` |
   | No whole-tree `git add` | `Bash` (`git add -A/--all/./:/`, `*`) | deny | `deny-git-add-all.sh` |
   | Never run sandboxed `git`/`find`/`ls`/`claude -p` | `SessionStart`, checks `~/.claude/settings.json` `sandbox.excludedCommands` ⊇ `git:*`, `find:*`, `ls:*`, `claude:*` | **warn** (`additionalContext` + `systemMessage`) | `warn-sandbox-excluded-commands.sh` |
@@ -278,6 +278,61 @@ tells the human who owns the file, naming only the patterns actually
 missing. Residual: only the user-level `~/.claude/settings.json` is
 read; project or managed settings that set the same key are not
 consulted.
+
+### Tree-root anchoring by `.git` adjacency
+
+`deny-plugin-dev-edit.sh` and `deny-volatile-memory-state.sh` both key on
+a path *segment* — `plugin-dev`, `memory` — and both originally spelled it
+`*/<segment>/*`. That glob is wrong at both ends. It misses the segment at
+string start, so a bare relative `plugin-dev/release.just` passed silently;
+relative `file_path` values are ordinary traffic, not a corner case. And it
+matches the segment at any depth, so a `vendor/thing/plugin-dev/x` that has
+nothing to do with the vendored subtree false-denied.
+
+What both rules actually mean is that the segment sits at the root of a git
+tree. That is tested by `.git` adjacency:
+
+```sh
+case "$file_path" in
+  "$seg"/*)   parent="." ;;
+  */"$seg"/*) parent="${file_path%%/"$seg"/*}"; [ -n "$parent" ] || parent=/ ;;
+  *) exit 0 ;;
+esac
+[ -e "$parent/.git" ] || exit 0
+```
+
+`%%` takes the outermost occurrence, which is the tree root by construction.
+`-e` rather than `-d`, because a linked worktree carries `.git` as a gitlink
+*file*; the suite proves this distinction is load-bearing rather than
+defensive — swapping `-e` for `-d` reds the worktree case and nothing else.
+
+Not `CLAUDE_PROJECT_DIR`. `EnterWorktree` chdirs without moving
+`projectRoot`, and Claude Code's worktrees live at
+`.claude/worktrees/<name>` *inside* the launch repo, so a comparison
+anchored on the project root would silently stop guarding in every
+worktree — the environment where an unreviewed edit is most likely.
+
+Not `git rev-parse --show-prefix`. It returns the path relative to the
+*submodule's* root, so a gitlore store mounted at `<root>/memory/` yields
+`''` and the segment vanishes. Testing the *parent's* `.git` sidesteps that
+entirely, and costs no subprocess.
+
+The relative branch resolves `.` against the hook process's cwd. That is
+the live session cwd, which is the best available answer for a path the
+model emitted relative to it — there is no payload field carrying a
+worktree root.
+
+Verdicts the tests encode:
+
+| path | verdict |
+| --- | --- |
+| `plugin-dev/release.just` | deny |
+| a worktree root's `plugin-dev/release.just` (gitlink `.git` file) | deny |
+| `vendor/nested/plugin-dev/x.sh` | pass |
+| `plugin-dev/` under a directory that is no git tree | pass |
+| `plugin-dev-notes/x.txt` | pass |
+| `memory/ddaanet/x.md` | deny |
+| `plugin-dev/memory/x.md` | pass |
 
 ### Deny output is stdout + exit 0, never stderr + exit 2
 

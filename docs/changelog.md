@@ -4,6 +4,18 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-08-27** — `deny-plugin-dev-edit.sh` and
+  `deny-volatile-memory-state.sh` anchor their path segment to a git
+  tree root, tested by `.git` adjacency. `*/<segment>/*` was wrong at
+  both ends: it missed the segment at string start, so a bare relative
+  `plugin-dev/release.just` or `memory/ddaanet/x.md` passed silently —
+  and relative `file_path` values are ordinary traffic — while matching
+  it at any depth, so a `vendor/thing/plugin-dev/x` false-denied. `-e`
+  and not `-d`, since a linked worktree's `.git` is a gitlink file;
+  swapping it reds the worktree case and nothing else. Full rationale,
+  including why neither `CLAUDE_PROJECT_DIR` nor `git rev-parse
+  --show-prefix` can anchor this, in `docs/design.md` under "Tree-root
+  anchoring by `.git` adjacency".
 - **2026-08-27** — `deny-no-verify.sh`'s recovery command is now
   verbatim-runnable. The repo path was interpolated unquoted, so a
   spaced path printed `cd /Users/david/my repo` — a two-argument `cd`

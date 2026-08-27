@@ -168,6 +168,35 @@ assert_passed "hygiene-ok clears its line" \
 assert_passed "origin/<ref> is a durable name" \
   "$(run_write "$mem" 'the release reads from origin/main')"
 
+
+# --- tree-root anchoring ---------------------------------------------------
+#
+# memory/ counts only at a git tree root, tested by `.git` adjacency.
+# Rationale: docs/design.md, "Tree-root anchoring by `.git` adjacency".
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+run_write_in() { # run_write_in <cwd> <path> <content>
+  jq -nc --arg p "$2" --arg c "$3" \
+    '{tool_name: "Write", tool_input: {file_path: $p, content: $c}}' \
+    | (cd "$1" && bash "$hook") 2>&1 || true
+}
+
+# A bare relative file_path is live traffic — the model emits one constantly —
+# and must deny when the hook's cwd is the repo root.
+assert_denied "relative memory/ path" \
+  "$(run_write_in "$repo_root" "memory/ddaanet/x.md" "fixed as of $sha")" "$sha"
+
+# A memory/ nested below a tree root is some other directory of that name,
+# not this repo's gitlore store.
+assert_passed "memory/ nested below the tree root" \
+  "$(run_write_in "$repo_root" "plugin-dev/memory/x.md" "fixed as of $sha")"
+
+# A memory/ under a directory that is no git tree at all.
+mkdir -p "$work/loose/memory"
+assert_passed "memory/ outside any git tree" \
+  "$(run_write "$work/loose/memory/x.md" "fixed as of $sha")"
 # The same volatile content outside memory/**.md is allowed — this repo's
 # own task handoff file is real traffic that legitimately isn't memory.
 assert_passed "volatile content outside memory/" \

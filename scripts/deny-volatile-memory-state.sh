@@ -47,10 +47,20 @@ case "$tool_name" in
 esac
 
 file_path="$(jq -r '.tool_input.file_path // ""' <<<"$input")"
+# The memory/ segment counts only at a git tree root, tested by `.git`
+# adjacency — no subprocess and no path resolution. `%%` takes the outermost occurrence,
+# which is the tree root by construction. `-e` and not `-d`: a linked
+# worktree carries .git as a gitlink *file*. The relative branch resolves
+# `.` against the hook process's cwd, which CC sets to the live session cwd —
+# the best available answer for a path the model emitted relative to it.
+# Rationale, including why not CLAUDE_PROJECT_DIR: docs/design.md,
+# "Tree-root anchoring by `.git` adjacency".
 case "$file_path" in
-  */memory/*.md) ;;
+  memory/*.md) parent="." ;;
+  */memory/*.md) parent="${file_path%%/memory/*}"; [ -n "$parent" ] || parent=/ ;;
   *) exit 0 ;;
 esac
+[ -e "$parent/.git" ] || exit 0
 
 # A Write carries the whole file, so its frontmatter block is detectable and
 # gets blanked; an Edit carries a fragment, which has none.

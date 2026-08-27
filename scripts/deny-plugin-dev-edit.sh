@@ -6,7 +6,10 @@
 # get tagged, then land here via `just update-plugin-dev vX.Y.Z`. See
 # shared-claude.md "Never hand-edit a vendored subtree".
 #
-# Mechanical: any absolute path with a `plugin-dev` path component.
+# Mechanical: a `plugin-dev` path component sitting at a git tree root.
+# Relative paths are live traffic, so the match is not anchored on an
+# absolute path; a nested vendor/thing/plugin-dev/ is somebody else's
+# directory of that name and passes.
 set -euo pipefail
 
 input="$(cat)"
@@ -19,10 +22,20 @@ esac
 file_path="$(jq -r '.tool_input.file_path // ""' <<<"$input")"
 [ -n "$file_path" ] || exit 0
 
+# The segment counts only at a git tree root, tested by `.git` adjacency —
+# no subprocess and no path resolution. `%%` takes the outermost occurrence,
+# which is the tree root by construction. `-e` and not `-d`: a linked
+# worktree carries .git as a gitlink *file*. The relative branch resolves
+# `.` against the hook process's cwd, which CC sets to the live session cwd —
+# the best available answer for a path the model emitted relative to it.
+# Rationale, including why not CLAUDE_PROJECT_DIR: docs/design.md,
+# "Tree-root anchoring by `.git` adjacency".
 case "$file_path" in
-  */plugin-dev/*) ;;
+  plugin-dev/*) parent="." ;;
+  */plugin-dev/*) parent="${file_path%%/plugin-dev/*}"; [ -n "$parent" ] || parent=/ ;;
   *) exit 0 ;;
 esac
+[ -e "$parent/.git" ] || exit 0
 
 agent_reason="This path is inside a vendored plugin-dev/ subtree — generated,
 read-only content pulled from claude-plugin-dev via git subtree. Edits belong
