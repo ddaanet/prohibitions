@@ -4,6 +4,14 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-08-27** — `deny-volatile-memory-state.sh` widened from full
+  40-hex shas to `\b[0-9a-f]{5,40}\b`: the old scope had zero true
+  positives available to it in a real 165-file store while missing four
+  live commit ids. Precision comes from exclusions instead — all-digit
+  runs, the closed 47-entry a-f-only word list, the YAML frontmatter
+  block, UUIDs, and `<!-- hygiene-ok` lines — mirroring gitlore's
+  `check-memory-hygiene.py` `volatile-state` so the write-time and
+  commit-time gates agree; rationale in `docs/design.md`.
 - **2026-08-26** — New hook `deny-git-add-all.sh`: whole-tree staging
   (`git add -A`, `--all`, `.`, `./`, `:/`, `'*'`, the `stage` synonym,
   short-flag clusters containing `A`) is refused, with the deny reason

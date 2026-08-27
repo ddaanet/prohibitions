@@ -75,7 +75,7 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
   | Never `--no-verify` | `Bash`, regex over `git commit`/`git push` | deny | `deny-no-verify.sh` |
   | Never create/switch branches or worktrees | `Bash` (`checkout -b`, `switch -c`, `worktree add`, `stash branch`) | **ask** | `ask-branch-worktree-bash.sh` |
   | ″ | `EnterWorktree` | **ask** | `ask-enter-worktree.sh` |
-  | No volatile git state in memory files | `Write\|Edit` on `memory/**.md`, 40-hex sha / `origin/*` tips | deny | `deny-volatile-memory-state.sh` |
+  | No volatile git state in memory files | `Write\|Edit` on `memory/**.md`, `` `[0-9a-f]{5,40}` `` minus digits/hex-words/frontmatter/UUIDs/`hygiene-ok` lines | deny | `deny-volatile-memory-state.sh` |
   | GitHub bodies are not hard-wrapped | `Bash` on `gh pr\|issue create\|comment\|edit\|review` with `--body-file` | deny | `deny-hardwrapped-gh-body.sh` |
   | No whole-tree `git add` | `Bash` (`git add -A/--all/./:/`, `*`) | deny | `deny-git-add-all.sh` |
 
@@ -178,6 +178,40 @@ pathspecs `'*'` and `':/'` are *arguments*, not prose, so they are
 unwrapped to their bare form before the shared quote strip runs —
 otherwise the strip that protects commit messages would delete the very
 token the rule exists to catch.
+
+### Abbreviated shas, with a closed exclusion list
+
+The volatile-state hook shipped scoped to full 40-hex shas, justified in
+its header by the claim that abbreviated hex would false-positive on
+ordinary prose. Measured, that claim is wrong in both directions: over a
+real 165-file memory store the 40-hex pattern had *zero* true positives
+available to it — the store contains no full shas at all — while missing
+four abbreviated commit ids that are live violations of the rule.
+The dictionary surface the narrow scope was protecting against is a
+closed set: words spellable in `a`–`f` alone number 47 at length ≥ 5, and
+`\b[a-f]{7,40}\b` returns nothing at all over the corpus. So the matcher
+is now `\b[0-9a-f]{5,40}\b` — five being git's floor for a usable
+abbreviation — with five exclusions: an all-digit run (file modes,
+byte budgets, token counts), the 47-word hex list, the YAML frontmatter
+block, UUIDs, and any line carrying `<!-- hygiene-ok`. On that corpus the
+composed rule yields 4 hits, 4 true positives, 0 false positives. The
+residual is stated rather than implied: a sha split across a line break
+or abbreviated below five characters passes, and so does the ~4% of
+seven-character shas that happen to be all digits — `(10/16)**7`.
+
+Lowercase only, because git never emits an uppercase sha while `FDA` and
+`EBCDIC` are ordinary acronyms; the old `[0-9a-fA-F]` bought nothing and
+cost precision. Content is read raw, no code-span or fence stripping,
+because every real hit in the corpus sat inside backticks — a sha's
+natural habitat in prose — so a code-stripped scan finds none of them.
+The rule deliberately mirrors gitlore's `check-memory-hygiene.py`
+`volatile-state` check, matcher and word list and suppression marker
+alike, so the write-time gate here and the commit-time gate there agree
+on what a violation is. One divergence is intentional: this hook also
+blanks UUIDs inside the body, not just inside frontmatter, because an
+`Edit.new_string` fragment carrying `originSessionId:` arrives with no
+frontmatter boundary to detect — gitlore always sees the whole file and
+does not need it.
 
 ### Deny output is stdout + exit 0, never stderr + exit 2
 

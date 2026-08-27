@@ -2,72 +2,182 @@
 # End-to-end test of deny-volatile-memory-state.sh against synthetic
 # PreToolUse(Write|Edit) payloads.
 #
+# The contract under test: deny when a token matches \b[0-9a-f]{5,40}\b
+# (lowercase only) and is not excluded by (1) being all digits, (2) sitting
+# in the closed hex-word list, (3) sitting inside the YAML frontmatter block,
+# (4) being part of a UUID, or (5) sharing a line with the `<!-- hygiene-ok -->`
+# suppression marker. Content is read raw — a sha's natural habitat is a code
+# span, so neither backticks nor fences are stripped.
+#
+# The hex-word list, verbatim from gitlore's check-memory-hygiene.py HEX_WORDS
+# (the complete a-f-only English set of length >= 5), so the two gates agree:
+#
+#   ababa abaca abaff accede acceded added adead aface afaced baaed bacaba
+#   bacca baccae baffed beaded bebed bedad bedded bedead bedeaf beebe beebee
+#   beefed cabda caeca caffa ceded dabba dabbed dacca daffed decad decade
+#   decca deeded deedeed deface defaced ebbed efface effaced fabaceae facade
+#   facaded faced faded feeded
+#
 # Usage: bash tests/deny-volatile-memory-state-test.sh   (run from repo root)
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 hook="$repo_root/scripts/deny-volatile-memory-state.sh"
+mem="$repo_root/memory/ddaanet/example.md"
 
 failures=0
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
   failures=$((failures + 1))
+  return 0
+}
+
+# Both runners merge stderr into the captured output: a pass case asserts the
+# output is empty, so a script that dies noisily is a failure rather than a
+# silent pass.
+run_write() { # run_write <path> <line>...
+  local path="$1"
+  shift
+  jq -nc --arg p "$path" --arg c "$(printf '%s\n' "$@")" \
+    '{tool_name: "Write", tool_input: {file_path: $p, content: $c}}' \
+    | bash "$hook" 2>&1 || true
+}
+
+run_edit() { # run_edit <path> <new_string>
+  jq -nc --arg p "$1" --arg n "$2" \
+    '{tool_name: "Edit", tool_input: {file_path: $p, old_string: "before", new_string: $n}}' \
+    | bash "$hook" 2>&1 || true
+}
+
+assert_denied() { # assert_denied <label> <output> [expected-token]
+  local label="$1" out="$2" token="${3-}" reason
+  printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' \
+    >/dev/null 2>&1 || { fail "$label: expected deny, got: $out"; return 0; }
+  reason="$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""')"
+  [ -n "$reason" ] || fail "$label: deny carried no permissionDecisionReason for the agent"
+  [ -n "$(printf '%s' "$out" | jq -r '.systemMessage // ""')" ] \
+    || fail "$label: deny carried no systemMessage for the human"
+  if [ -n "$token" ]; then
+    case "$reason" in
+      *"$token"*) ;;
+      *) fail "$label: deny reason did not quote the offending token '$token': $reason" ;;
+    esac
+  fi
+  return 0
+}
+
+assert_passed() { # assert_passed <label> <output>
+  [ -z "$2" ] || fail "$1: expected pass-through, got: $2"
+  return 0
 }
 
 sha='4b825dc642cb6eb9a060e54bf8d69288fbee4904'  # git's empty-tree sha — a real, meaningful 40-hex sha
+uuid='94e0a066-a634-4a25-a32d-b0f53b992c25'     # the originSessionId shape the harness writes
 
-# Write with volatile content in a memory/**.md path is denied.
-out="$(jq -nc --arg s "$sha" \
-  '{tool_name: "Write", tool_input: {file_path: "'"$repo_root"'/memory/ddaanet/example.md", content: ("fixed as of " + $s)}}' \
-  | bash "$hook" 2>&1)" || true
-printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' \
-  >/dev/null 2>&1 || fail "Write with sha in memory/ was not denied: $out"
-[ -n "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""')" ] \
-  || fail "deny carried no permissionDecisionReason for the agent"
-[ -n "$(printf '%s' "$out" | jq -r '.systemMessage // ""')" ] \
-  || fail "deny carried no systemMessage for the human"
+# --- denied: volatile git state reaching a memory/**.md file ----------------
 
-# Edit introducing a full sha via new_string in a memory/**.md path is
-# denied, even when old_string is clean.
-out="$(jq -nc --arg s "$sha" \
-  '{tool_name: "Edit", tool_input: {file_path: "'"$repo_root"'/memory/ddaanet/example.md", old_string: "before", new_string: ("tip is " + $s + " right now")}}' \
-  | bash "$hook" 2>&1)" || true
-printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' \
-  >/dev/null 2>&1 || fail "Edit with a full sha in memory/ was not denied: $out"
+# A full 40-hex sha, the case the hook shipped with.
+assert_denied "full sha in a Write" \
+  "$(run_write "$mem" "fixed as of $sha")" "$sha"
+
+# An Edit introducing a full sha via new_string, even when old_string is clean.
+assert_denied "full sha in an Edit new_string" \
+  "$(run_edit "$mem" "tip is $sha right now")" "$sha"
+
+# Abbreviated shas: the class the corpus actually contains. Every real hit in
+# a 165-file memory store was an abbreviation, none a full sha.
+assert_denied "bare 7-char sha" \
+  "$(run_write "$mem" 'see commit f59674b for context')" 'f59674b'
+
+# Read raw — a sha's habitat in prose is a code span.
+# shellcheck disable=SC2016  # literal backticks in prose, not command substitution
+assert_denied "7-char sha inside backticks" \
+  "$(run_write "$mem" 'Fixed in commit `7c0471b`.')" '7c0471b'
+
+# Five is git's floor for a usable abbreviation, so it is the matcher's floor.
+assert_denied "5-char sha" \
+  "$(run_write "$mem" 'landed as afb02 on live')" 'afb02'
+
+# A fenced block is not stripped either.
+# shellcheck disable=SC2016  # literal backticks in prose, not command substitution
+assert_denied "sha inside a fenced code block" \
+  "$(run_write "$mem" '```' 'fixed (`e205aa6`)' '```')" 'e205aa6'
+
+# The brief's own provenance case: this exact string was allowed into a memory
+# file by the 40-hex-only matcher.
+assert_denied "abbreviated sha in an Edit new_string" \
+  "$(run_edit "$mem" 'landed as afb02b9 on live')" 'afb02b9'
+
+# The suppression marker clears the line it sits on, not the file: the
+# unmarked line below it is still a violation, and it is the one reported.
+# shellcheck disable=SC2016  # literal backticks in prose, not command substitution
+out="$(run_write "$mem" 'Fixed in `7c0471b`. <!-- hygiene-ok -->' 'Also landed as afb02b9 on live')"
+assert_denied "unmarked line beside a suppressed one" "$out" 'afb02b9'
+case "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""')" in
+  *7c0471b*) fail "suppression is per-line: the marked line's sha must not be reported: $out" ;;
+esac
+
+# --- allowed: everything the widened matcher must not claim -----------------
+
+# An all-digit run is a number — file modes, byte budgets, token counts.
+assert_passed "all-digit runs are numbers" \
+  "$(run_write "$mem" 'Mode 100644 and a 160000 gitlink; the budget is 25600 bytes, seen at 197354.')"
+
+# The hex-word list is closed, so no later English word can surprise it.
+assert_passed "hex words are words" \
+  "$(run_write "$mem" 'The next line added a facade; the entry acceded and was defaced, then faded.')"
+
+# Git never emits an uppercase sha; uppercase hex is an acronym.
+assert_passed "uppercase hex is an acronym" \
+  "$(run_write "$mem" 'The FDA and the CDC once used EBCDIC; DEADBEEF is a sentinel.')"
+
+# Below git's five-character floor.
+assert_passed "four-char hex is too short" \
+  "$(run_write "$mem" 'beef and f59b are too short')"
+
+# originSessionId is a UUID the harness writes into every fact's frontmatter,
+# and its dash-separated groups are 8 and 12 hex characters.
+assert_passed "frontmatter originSessionId" \
+  "$(run_write "$mem" '---' 'name: example' 'description: an example fact' \
+    'metadata:' '  type: reference' "  originSessionId: $uuid" '---' '' 'A body naming no sha.')"
+
+# An Edit fragment carries no frontmatter boundary to detect, so the UUID
+# shape itself has to be excluded.
+assert_passed "originSessionId in an Edit new_string" \
+  "$(run_edit "$mem" "  originSessionId: $uuid")"
+
+# The same UUID in the body, where no frontmatter block is in scope.
+assert_passed "UUID in the body" \
+  "$(run_write "$mem" "session $uuid did it")"
+
+# The suppression marker clears the line it sits on — same marker as gitlore's
+# gate, so a suppressed line is suppressed at write time too.
+# shellcheck disable=SC2016  # literal backticks in prose, not command substitution
+assert_passed "hygiene-ok clears its line" \
+  "$(run_write "$mem" 'Fixed in `7c0471b`. <!-- hygiene-ok -->')"
 
 # origin/<ref> is a durable name, exactly what the rule says to use instead
 # of a sha — it must NOT be treated as volatile state.
-out="$(jq -nc \
-  '{tool_name: "Write", tool_input: {file_path: "'"$repo_root"'/memory/ddaanet/example.md", content: "the release reads from origin/main"}}' \
-  | bash "$hook")"
-[ -z "$out" ] || fail "origin/<ref> as a durable name expected pass-through, got: $out"
+assert_passed "origin/<ref> is a durable name" \
+  "$(run_write "$mem" 'the release reads from origin/main')"
 
 # The same volatile content outside memory/**.md is allowed — this repo's
 # own task handoff file is real traffic that legitimately isn't memory.
-out="$(jq -nc --arg s "$sha" \
-  '{tool_name: "Write", tool_input: {file_path: "'"$repo_root"'/.claude/handoff-task.md", content: ("fixed as of " + $s)}}' \
-  | bash "$hook")"
-[ -z "$out" ] || fail "volatile content outside memory/ expected pass-through, got: $out"
+assert_passed "volatile content outside memory/" \
+  "$(run_write "$repo_root/.claude/handoff-task.md" "fixed as of $sha")"
 
 # Ordinary durable-name content in a real memory file is allowed — this
 # repo's own shared-claude.md tier file, unmodified.
-out="$(jq -nc --arg c "$(head -c 4000 "$repo_root/memory/ddaanet/shared-claude.md")" \
-  '{tool_name: "Write", tool_input: {file_path: "'"$repo_root"'/memory/ddaanet/shared-claude.md", content: $c}}' \
-  | bash "$hook")"
-[ -z "$out" ] || fail "durable-name memory content expected pass-through, got: $out"
-
-# An abbreviated hex sequence must not false-positive — the rule is scoped
-# to full 40-hex shas.
-out="$(jq -nc \
-  '{tool_name: "Write", tool_input: {file_path: "'"$repo_root"'/memory/ddaanet/example.md", content: "see commit f59674b for context"}}' \
-  | bash "$hook")"
-[ -z "$out" ] || fail "abbreviated sha expected pass-through, got: $out"
+assert_passed "real shared-claude.md content" \
+  "$(jq -nc --arg p "$repo_root/memory/ddaanet/shared-claude.md" \
+    --arg c "$(head -c 4000 "$repo_root/memory/ddaanet/shared-claude.md")" \
+    '{tool_name: "Write", tool_input: {file_path: $p, content: $c}}' | bash "$hook" 2>&1 || true)"
 
 # Real traffic this matcher's script must let through unharmed, even if ever
 # mis-wired to a broader matcher: every other tool call passes through silent.
 for t in Bash Read AskUserQuestion; do
-  passthrough="$(jq -nc --arg t "$t" '{tool_name: $t, tool_input: {}}' | bash "$hook")"
-  [ -z "$passthrough" ] || fail "[$t] expected pass-through, got: $passthrough"
+  assert_passed "[$t] other tools" \
+    "$(jq -nc --arg t "$t" '{tool_name: $t, tool_input: {}}' | bash "$hook" 2>&1 || true)"
 done
 
 if (( failures > 0 )); then
