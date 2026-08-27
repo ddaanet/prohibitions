@@ -4,6 +4,14 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-08-27** — `deny-git-add-all` and
+  `warn-sandbox-excluded-commands` are executable, script and test
+  alike; both landed 100644 while every other component is 100755.
+  Nothing was broken by it — `hooks/hooks.json` invokes each script as
+  `bash "<path>"` and `just precommit` runs each test the same way, so
+  neither path consults the mode — but a mode that only two of ten
+  components carry is a trap for any later caller that does execute
+  them directly.
 - **2026-08-27** — `docs/design.md` records the hook audit's scope: a
   Limitations entry saying `plugin-dev/` was never scanned, so its
   absence reads as a boundary rather than a clean bill. The Architecture
