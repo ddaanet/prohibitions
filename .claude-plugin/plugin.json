@@ -1,6 +1,6 @@
 {
   "name": "prohibitions",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Hooks that intercept ddaanet behavioural rules at the moment of action, replacing always-on prose with mechanical enforcement.",
   "author": {
     "name": "David Allouche",
