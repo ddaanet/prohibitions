@@ -63,7 +63,7 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
   `.version` reflects the *last released* version; a `PreToolUse` hook
   from the vendored toolkit (`plugin-dev/version-guard.sh`) refuses
   direct edits to it, so only `just release` can bump it.
-- **`hooks/hooks.json`** — wires seven rules to eight scripts (branch/worktree
+- **`hooks/hooks.json`** — wires eight rules to nine scripts (branch/worktree
   creation needs two scripts to cover both its `Bash` and
   `EnterWorktree` matchers):
 
@@ -77,6 +77,7 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
   | ″ | `EnterWorktree` | **ask** | `ask-enter-worktree.sh` |
   | No volatile git state in memory files | `Write\|Edit` on `memory/**.md`, 40-hex sha / `origin/*` tips | deny | `deny-volatile-memory-state.sh` |
   | GitHub bodies are not hard-wrapped | `Bash` on `gh pr\|issue create\|comment\|edit\|review` with `--body-file` | deny | `deny-hardwrapped-gh-body.sh` |
+  | No whole-tree `git add` | `Bash` (`git add -A/--all/./:/`, `*`) | deny | `deny-git-add-all.sh` |
 
 - **`scripts/*.sh` + `tests/*-test.sh`** — one script per hook, one
   end-to-end test per script, driven by synthetic `PreToolUse` JSON
@@ -96,7 +97,7 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
 
 ### Ask, not deny, for branch/worktree creation and off-project edits
 
-Two of the seven rules cannot be `deny`: merging onto a base my human
+Two of the eight rules cannot be `deny`: merging onto a base my human
 partner named is executing their instruction, not originating a branch
 switch, and filing a brief in another repo is legitimate — only *edits*
 there are forbidden. A hook that denies either blocks legitimate work,
@@ -130,15 +131,16 @@ the only way to remove the prompt from the permitted case.
 
 ### Strip quoted and heredoc regions before matching
 
-`deny-no-verify.sh` and `ask-branch-worktree-bash.sh` strip `'...'`/
-`"..."` spans from the command string before matching, so a commit
-message that *mentions* `--no-verify` or `checkout -b` in prose doesn't
+`deny-no-verify.sh`, `ask-branch-worktree-bash.sh` and
+`deny-git-add-all.sh` strip `'...'`/`"..."` spans from the command
+string before matching, so a commit message that *mentions*
+`--no-verify`, `checkout -b` or `git add -A` in prose doesn't
 false-trigger. A heredoc body (`<<'EOF' … EOF`) isn't wrapped in quote
 characters at all, and this project's own commit-message convention
 uses heredocs for multi-line messages — so a real commit documenting
 these hooks (e.g. "Document that `--no-verify` is refused by the new
-hook") false-triggered both scripts, including a hard **deny** blocking
-a safe commit. Both scripts now strip heredoc bodies (tracking the
+hook") false-triggered the first two scripts, including a hard **deny**
+blocking a safe commit. All three strip heredoc bodies (tracking the
 opener, its optional `-` tab-stripping mode, and its terminator line)
 ahead of the quote strip.
 
@@ -152,9 +154,34 @@ silently passed the gate. The extraction now walks every
 `--body-file` match in the command and denies on the first violation
 found among them.
 
+### Deny, not ask, for whole-tree `git add`
+
+Across 45 days of transcripts, 77% of `git add` segments already named
+their paths and only 0.4% used `-u`, so the disciplined form is the
+norm and the remedy for the other 23% is purely mechanical: name the
+paths. An `ask` would therefore be pure latency — the correct answer to
+the prompt is always the same — so this rule denies. `git add -u` stays
+allowed: it is bounded to already-tracked files and cannot stage
+something the author never told git about, which is the whole failure
+mode. `-A` with a pathspec (`git add -A src/`) is still denied and
+nothing is lost by that: since git 2.0 a plain `git add <pathspec>`
+already behaves as `-A` within that pathspec, so the flag is redundant
+wherever it is safe.
+
+Detection walks tokens rather than pattern-matching the raw string:
+find `git`, skip its global options (consuming the operand of `-C`,
+`-c`, `--git-dir`, `--work-tree`, `--namespace`, `--config-env`),
+require the subcommand to be exactly `add` or `stage`, then look for a
+whole-tree token among the rest. That is what keeps `git add-something
+-A`, `git log -- .` and `git diff .` passing. One wrinkle: the quoted
+pathspecs `'*'` and `':/'` are *arguments*, not prose, so they are
+unwrapped to their bare form before the shared quote strip runs —
+otherwise the strip that protects commit messages would delete the very
+token the rule exists to catch.
+
 ### Deny output is stdout + exit 0, never stderr + exit 2
 
-All eight scripts emit their `hookSpecificOutput` JSON on stdout with
+All nine scripts emit their `hookSpecificOutput` JSON on stdout with
 exit 0, including deny decisions. `exit 2` is a valid deny mechanism but
 carries no `ask` capability and no `systemMessage` channel for a
 human-facing summary distinct from the agent-facing reason — using the

@@ -4,6 +4,13 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-08-26** — New hook `deny-git-add-all.sh`: whole-tree staging
+  (`git add -A`, `--all`, `.`, `./`, `:/`, `'*'`, the `stage` synonym,
+  short-flag clusters containing `A`) is refused, with the deny reason
+  naming the remedy — stage the paths you mean, or `git add -u` for
+  already-tracked files only. Detection tokenizes each command segment
+  and requires `add` to be the git subcommand, so `git add-something
+  -A`, `git log -- .` and `git add ./path` pass.
 - **2026-08-26** — `ask-write-edit-outside-project.sh` no longer asks
   for a `Write` creating a new `.md` file outside the project (except
   `CLAUDE.md` and paths under `.claude/`): dropping a note in another
