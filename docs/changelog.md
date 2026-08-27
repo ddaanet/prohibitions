@@ -4,6 +4,14 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-08-27** — `docs/design.md` records the hook audit's scope: a
+  Limitations entry saying `plugin-dev/` was never scanned, so its
+  absence reads as a boundary rather than a clean bill. The Architecture
+  matcher table was re-checked row by row against `hooks/hooks.json` and
+  each script's own guard; the only drift beyond the two rows the anchor
+  change rewrote was the off-project row, which claimed every new `.md`
+  `Write` is exempt without naming the `CLAUDE.md` and `.claude/`
+  carve-outs the script applies.
 - **2026-08-27** — The capture convention now holds in all ten test
   files. The six that had it partially or not at all — `fail()` without
   a trailing `return 0`, a `run()` helper without `2>&1 || true`, a

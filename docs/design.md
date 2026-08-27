@@ -98,7 +98,7 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
   | Rule | Matcher | Decision | Script |
   | --- | --- | --- | --- |
   | Never call `AskUserQuestion` | tool name `AskUserQuestion` | deny | `deny-ask-user-question.sh` |
-  | Other repos stay read-only | `Write\|Edit`, path outside `CLAUDE_PROJECT_DIR`; new `.md` via `Write` exempt | **ask** | `ask-write-edit-outside-project.sh` |
+  | Other repos stay read-only | `Write\|Edit`, path outside `CLAUDE_PROJECT_DIR`; a `Write` creating a new `.md` exempt, except `CLAUDE.md` and anything under `.claude/` | **ask** | `ask-write-edit-outside-project.sh` |
   | Never hand-edit a vendored subtree | `Write\|Edit`, a `plugin-dev` segment at a git tree root (`.git`-adjacent) | deny | `deny-plugin-dev-edit.sh` |
   | Never `--no-verify` | `Bash`, regex over `git commit`/`git push` | deny | `deny-no-verify.sh` |
   | Never create/switch branches or worktrees | `Bash` (`checkout -b`, `switch -c`, `worktree add`, `stash branch`) | **ask** | `ask-branch-worktree-bash.sh` |
@@ -379,6 +379,12 @@ of its decision, and matches
   The check belongs in gitlore's `SessionStart`, not here, and doesn't
   exist yet — so `shared-claude.md`'s prose stays in place alongside
   every hook shipped here, undiminished, until it does.
+- **`plugin-dev/` was not audited.** The shell-gotcha audit behind
+  these hooks' shape covered `scripts/` and `tests/` only.
+  `plugin-dev/` is a vendored subtree of claude-plugin-dev, so a
+  finding there belongs in that repo and would be undone by the next
+  `just update-plugin-dev` if fixed here. Its absence from the audit is
+  a scope boundary, not a clean bill.
 - **Detection is co-occurrence-based in places** (e.g. `gh`/`pr|issue`/
   `create|comment|edit|review` for the hard-wrap guard), not full
   adjacency parsing. Accepted where exploiting the gap needs a
