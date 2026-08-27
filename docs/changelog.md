@@ -4,6 +4,16 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-08-27** — `deny-hardwrapped-gh-body.sh` extracts the
+  `--body-file` value quote-aware. `[^[:space:]]+` cut the path at its
+  first space, and a truncated path fails the `-f` test and hits
+  `continue`, so a spaced path did not degrade the check — it bypassed
+  the guard silently, in all three spellings (`"…"`, `'…'`, `\ `). The
+  pattern is now an alternation over a double-quoted run, a
+  single-quoted run, and a run allowing backslash-escaped characters,
+  with `\ ` unescaped after the quote stripping; other escapes are left
+  as written, since a space is the only one that defeated the
+  extraction and a path may legitimately contain a backslash.
 - **2026-08-27** — macOS/BSD compatibility recorded as a requirement in
   `docs/design.md` (POSIX utilities, bash 3.2) and enforced by a new
   `tests/portability-test.sh`, plus the four GNU-only constructs that

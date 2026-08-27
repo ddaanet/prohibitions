@@ -125,6 +125,31 @@ out="$(run "gh pr create --title x --body-file $clean")"
 out="$(run "gh pr create --title x --body-file=$clean")"
 [ -z "$out" ] || fail "clean body via --body-file= expected pass-through, got: $out"
 
+# A --body-file path containing whitespace must still be read, in all three
+# spellings a shell command can carry it. Cutting the value at the first
+# space made the file unreadable, and an unreadable file is skipped silently
+# — the guard was bypassed entirely, not merely degraded.
+mkdir -p "$work/with space"
+spaced_wrapped="$work/with space/wrapped.md"
+cp "$wrapped" "$spaced_wrapped"
+out="$(run "gh pr create --title x --body-file \"$spaced_wrapped\"")"
+printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' \
+  >/dev/null 2>&1 || fail "double-quoted spaced body-file was not denied: $out"
+out="$(run "gh pr create --title x --body-file ${spaced_wrapped// /\\ }")"
+printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' \
+  >/dev/null 2>&1 || fail "backslash-escaped spaced body-file was not denied: $out"
+out="$(run "gh pr create --title x --body-file=\"$spaced_wrapped\"")"
+printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' \
+  >/dev/null 2>&1 || fail "--body-file= with a quoted spaced path was not denied: $out"
+
+# The paired positive: a clean body at a spaced path must still pass, so the
+# three cases above prove the hook now reads the file rather than proving it
+# denies whatever it cannot parse.
+spaced_clean="$work/with space/clean.md"
+cp "$clean" "$spaced_clean"
+out="$(run "gh pr create --title x --body-file \"$spaced_clean\"")"
+[ -z "$out" ] || fail "clean body at a spaced path expected pass-through, got: $out"
+
 # gh pr create without --body-file (e.g. --body inline) is out of scope and
 # passes through untouched.
 out="$(run 'gh pr create --title x --body "inline text"')"

@@ -74,7 +74,14 @@ find_violation_line() {
 # A compound command can chain more than one gh body-posting call (e.g.
 # creating a linked issue then PR) — check every --body-file, not just the
 # first, so a wrapped second file isn't silently missed.
-body_files="$(grep -Eo -- '--body-file[= ][^[:space:]]+' <<<"$command" || true)"
+
+# The value is matched quote-aware: a double-quoted run, a single-quoted run,
+# or a run of non-space characters in which a backslash escapes the character
+# after it. A bare [^[:space:]]+ cut a spaced path at its first space, and the
+# truncated path then failed the -f test below and was skipped — the guard
+# went silent rather than degrading visibly.
+body_re='--body-file[= ]("[^"]*"|'\''[^'\'']*'\''|(\\.|[^[:space:]])+)'
+body_files="$(grep -Eo -- "$body_re" <<<"$command" || true)"
 [ -n "$body_files" ] || exit 0
 
 violation_file=""
@@ -88,6 +95,11 @@ while IFS= read -r match; do
   body_file="${body_file#\"}"
   body_file="${body_file%\'}"
   body_file="${body_file#\'}"
+  # Only backslash-space is unescaped: it is the one escape that silently
+  # defeated the extraction. \" and \\ are left as written, because a path
+  # may legitimately contain a backslash and an over-eager unescape would
+  # corrupt it.
+  body_file="${body_file//\\ / }"
   if [ -z "$body_file" ] || [ "$body_file" = "-" ] || [ ! -f "$body_file" ]; then
     continue
   fi
