@@ -31,6 +31,7 @@ matches_word() { # matches_word <ere-alternation> <text>
 }
 
 command="$(jq -r '.tool_input.command // ""' <<<"$input")"
+cwd="$(jq -r '.cwd // ""' <<<"$input")"
 matches_word 'gh' "$command" || exit 0
 matches_word 'pr|issue' "$command" || exit 0
 matches_word 'create|comment|edit|review' "$command" || exit 0
@@ -100,9 +101,24 @@ while IFS= read -r match; do
   # may legitimately contain a backslash and an over-eager unescape would
   # corrupt it.
   body_file="${body_file//\\ / }"
-  if [ -z "$body_file" ] || [ "$body_file" = "-" ] || [ ! -f "$body_file" ]; then
+  if [ -z "$body_file" ] || [ "$body_file" = "-" ]; then
     continue
   fi
+
+  # A relative path resolves against the payload's cwd, not the hook
+  # process's. The hook inherits the live session cwd, which is usually the
+  # same directory and silently is not whenever the session has moved; the
+  # payload field is the authoritative one. Spelled as if/then rather than
+  # `[ -n "$cwd" ] && …` so the intent survives being moved to the end of a
+  # function, where the && form would become the return status.
+  if [ -n "$cwd" ]; then
+    case "$body_file" in
+      /*) ;;
+      *) body_file="$cwd/$body_file" ;;
+    esac
+  fi
+
+  [ -f "$body_file" ] || continue
 
   line="$(find_violation_line "$body_file")"
   if [ "$line" -gt 0 ]; then

@@ -21,6 +21,11 @@ run() {  # $1 = command
   jq -nc --arg c "$1" '{tool_name: "Bash", tool_input: {command: $c}}' | bash "$hook" 2>&1
 }
 
+run_cwd() {  # $1 = command, $2 = payload cwd
+  jq -nc --arg c "$1" --arg d "$2" \
+    '{tool_name: "Bash", tool_input: {command: $c}, cwd: $d}' | bash "$hook" 2>&1 || true
+}
+
 # A hard-wrapped paragraph in a real gh pr create --body-file is denied.
 wrapped="$work/wrapped.md"
 printf 'Summary\n\nThis line wraps into the next physical line without a\nblank line between them, which GitHub renders with a <br>.\n' >"$wrapped"
@@ -149,6 +154,21 @@ spaced_clean="$work/with space/clean.md"
 cp "$clean" "$spaced_clean"
 out="$(run "gh pr create --title x --body-file \"$spaced_clean\"")"
 [ -z "$out" ] || fail "clean body at a spaced path expected pass-through, got: $out"
+
+# A relative --body-file resolves against the payload's cwd, not the hook
+# process's. The test's own cwd is the repo root, so a hook reading the
+# wrong one finds no file and passes silently.
+mkdir -p "$work/rel"
+cp "$wrapped" "$work/rel/wrapped.md"
+out="$(run_cwd 'gh pr create --title x --body-file wrapped.md' "$work/rel")"
+printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' \
+  >/dev/null 2>&1 || fail "relative body-file under the payload cwd was not denied: $out"
+
+# And the paired positive: a clean relative body under the same cwd passes,
+# so the case above is not satisfied by denying everything unresolvable.
+cp "$clean" "$work/rel/clean.md"
+out="$(run_cwd 'gh pr create --title x --body-file clean.md' "$work/rel")"
+[ -z "$out" ] || fail "clean relative body-file expected pass-through, got: $out"
 
 # gh pr create without --body-file (e.g. --body inline) is out of scope and
 # passes through untouched.

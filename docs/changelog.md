@@ -4,6 +4,14 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-08-27** — `deny-hardwrapped-gh-body.sh` resolves a relative
+  `--body-file` against the payload's `cwd`. The hook had never read the
+  field, so a relative path resolved against whatever cwd the hook
+  process inherited: the same payload denied when the hook happened to
+  run from the right directory and passed silently otherwise. The hook
+  process's cwd is the live session cwd, which is usually right and
+  silently is not once the session has moved, so the payload field is
+  the authoritative one.
 - **2026-08-27** — `deny-hardwrapped-gh-body.sh` extracts the
   `--body-file` value quote-aware. `[^[:space:]]+` cut the path at its
   first space, and a truncated path fails the `-f` test and hits
