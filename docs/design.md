@@ -31,10 +31,11 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
 - One hook per rule in scope — `PreToolUse` except where noted —
   denying, asking or warning per the rule's own contract (see
   Architecture below for the current set).
-- Each hook's denial/ask message carries the recovery detail the prose
-  it replaces used to carry — e.g. the `--no-verify` block names the
-  stale-push-hook recovery (`(cd <repo> && claude -p ping)`), not just
-  "no."
+- Each hook carries the recovery detail the prose it replaces used to
+  carry — e.g. the `--no-verify` block names the stale-push-hook
+  recovery (`(cd <repo> && claude -p ping)`), not just "no." Where that
+  detail is instruction rather than verdict it rides
+  `additionalContext`, which reaches the agent without rendering.
 - `ask` decisions use the `PreToolUse` permission-decision output, never
   a bare `exit 2` — `exit 2` is deny-only and cannot produce an `ask`.
 
@@ -97,7 +98,7 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
 
   | Rule | Matcher | Decision | Script |
   | --- | --- | --- | --- |
-  | Never call `AskUserQuestion` | tool name `AskUserQuestion` | deny | `deny-ask-user-question.sh` |
+  | Never call `AskUserQuestion` | tool name `AskUserQuestion` | deny (reason + `additionalContext` + `systemMessage`) | `deny-ask-user-question.sh` |
   | Other repos stay read-only | `Write\|Edit`, path outside `CLAUDE_PROJECT_DIR`; a `Write` creating a new `.md` exempt, except `CLAUDE.md` and anything under `.claude/` | **ask** | `ask-write-edit-outside-project.sh` |
   | Never hand-edit a vendored subtree | `Write\|Edit`, a `plugin-dev` segment at a git tree root (`.git`-adjacent) | deny | `deny-plugin-dev-edit.sh` |
   | Never `--no-verify` | `Bash`, regex over `git commit`/`git push` | deny | `deny-no-verify.sh` |
@@ -343,6 +344,32 @@ human-facing summary distinct from the agent-facing reason — using the
 JSON channel uniformly keeps every script's shape identical regardless
 of its decision, and matches
 [[hook-output-channels]] in the shared memory tier.
+
+### A deny splits three ways by audience
+
+Within that JSON the channels are not interchangeable, and a deny has
+three audiences, not two. `permissionDecisionReason` becomes the
+`tool_result` the blocked call fails with — it is what renders beside
+the intercepted call, so it says only that the call is refused.
+`additionalContext` is agent-only and never echoed, so it carries the
+recovery — the form the question should take instead.
+`systemMessage` is the human's single curt line.
+
+Putting the recovery on the deny reason instead conflates the two: the
+instructional prose renders with every block, which is noise for the
+human and no better targeted for the agent. `deny-ask-user-question.sh`
+is the worked example; the same split is what
+`warn-sandbox-excluded-commands.sh` already does on its warn path.
+
+That `additionalContext` survives a **deny** is verified, not assumed —
+the shared-tier note covers a tool call that *fails*, which a blocked
+call is not. Probed against CC 2.1.258 with a scratch `--settings` hook
+under a nested `claude --print`: the field arrives as a transcript
+attachment of type `hook_additional_context`, bound to the same
+`toolUseID` as the denied call, and the receiving agent reported both it
+and the deny reason. Re-probe before assuming a future version still
+does this; the failure mode is silent, since a dropped
+`additionalContext` leaves the deny working and only the teaching gone.
 
 ## Rejected alternatives
 

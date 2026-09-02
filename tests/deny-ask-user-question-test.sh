@@ -31,6 +31,17 @@ printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' \
 [ -n "$(printf '%s' "$out" | jq -r '.systemMessage // ""')" ] \
   || fail "deny carried no systemMessage for the human"
 
+# The recovery rides additionalContext, not the deny reason: verified on CC
+# 2.1.258 that a deny still delivers it, as a hook_additional_context
+# attachment bound to the same toolUseID. Keeping the two separate is what
+# stops the instructional prose rendering with the blocked call.
+[ -n "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext // ""')" ] \
+  || fail "deny carried no additionalContext for the agent"
+printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecisionReason | test("inline") | not' \
+  >/dev/null 2>&1 || fail "deny reason still carries the inline-questions recovery"
+printf '%s' "$out" | jq -e '.hookSpecificOutput.additionalContext | test("inline")' \
+  >/dev/null 2>&1 || fail "additionalContext does not carry the inline-questions recovery"
+
 # Real traffic this matcher's script must let through unharmed, even if ever
 # mis-wired to a broader matcher: every other tool call passes through silent.
 for t in Bash Write Edit Read; do

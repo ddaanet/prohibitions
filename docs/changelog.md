@@ -4,6 +4,21 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-09-02** — `deny-ask-user-question.sh` splits its output three
+  ways by audience. The recovery — ask inline in numbered plain prose,
+  each question carrying a stated default — moved off
+  `permissionDecisionReason` onto `additionalContext`, leaving the deny
+  reason a single line saying the call is refused, and the
+  `systemMessage` was rewritten to the curt lowercase house style. The
+  reason renders beside the blocked call; the recovery is agent-only and
+  silent, so the instruction no longer prints at the human every time
+  the guard fires. That `additionalContext` is delivered on a **deny**
+  and not merely on a failed call was probed against CC 2.1.258 under a
+  nested `claude --print` with scratch `--settings`: it arrives as a
+  `hook_additional_context` attachment bound to the denied call's
+  `toolUseID`. The test asserts the split in both directions — the
+  recovery present in `additionalContext`, absent from the deny reason —
+  and was red-checked by dropping the field from the emitted JSON.
 - **2026-08-27** — `deny-git-add-all` and
   `warn-sandbox-excluded-commands` are executable, script and test
   alike; both landed 100644 while every other component is 100755.
