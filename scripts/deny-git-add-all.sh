@@ -12,9 +12,11 @@
 #
 # Mechanical, not a shell parser. Heredoc bodies and quoted regions are
 # stripped first (as in deny-no-verify.sh) so prose mentioning `git add
-# -A` in a commit message doesn't fire the guard — but the two quoted
-# whole-tree pathspecs `'*'`/`"*"` and `':/'`/`":/"` are unwrapped ahead
-# of that strip, since there they are the argument rather than prose.
+# -A` in a commit message doesn't fire the guard — but a quoted
+# whole-tree pathspec is unwrapped ahead of that strip, since there it is
+# the argument rather than prose. All four are quotable and mean the same
+# thing quoted: `'*'` must be quoted to reach git at all, and `'.'`,
+# `'./'`, `':/'` stage the whole tree exactly as their bare spellings do.
 # The command is then split into segments on `;`, `|` and `&` (covering
 # `&&`, `||`, `|`, `;`, background `&`) plus newlines, and each segment
 # is whitespace-tokenized and walked: find `git`, skip its global
@@ -26,6 +28,11 @@
 # itself would do. A backslash-escaped space in an unquoted path splits
 # into fragments, but a fragment never equals a whole-tree token, so it
 # can only under-deny, never false-deny.
+#
+# Residual bound of the unwrap: it matches a quoted pathspec as written,
+# so an interpolated one — `git add "$dir"` with `dir=.` — is invisible
+# here and passes. That is under-denial, the safe direction; closing it
+# would need the variable's value, which a PreToolUse hook does not have.
 set -euo pipefail
 
 strip_heredocs() {
@@ -57,7 +64,11 @@ tool_name="$(jq -r '.tool_name // ""' <<<"$input")"
 
 command="$(jq -r '.tool_input.command // ""' <<<"$input")"
 stripped="$(strip_heredocs "$command")"
-stripped="$(sed -E "s/'\\*'/*/g; s/\"\\*\"/*/g; s/':\\/'/:\\//g; s/\":\\/\"/:\\//g" <<<"$stripped")"
+# Quoting the pattern keeps `*` literal rather than a glob.
+for spec in '*' ':/' '.' './'; do
+  stripped="${stripped//"'$spec'"/$spec}"
+  stripped="${stripped//"\"$spec\""/$spec}"
+done
 stripped="$(sed -E "s/'[^']*'//g; s/\"[^\"]*\"//g" <<<"$stripped")"
 
 # One segment per line. The three separator characters all map to a

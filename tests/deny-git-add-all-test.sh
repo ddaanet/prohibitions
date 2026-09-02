@@ -50,6 +50,12 @@ for cmd in \
   'git add :/' \
   "git add '*'" \
   'git add "*"' \
+  "git add '.'" \
+  'git add "."' \
+  "git add './'" \
+  'git add "./"' \
+  "git add ':/'" \
+  'git add ":/"' \
   'git add -nA' \
   'git add --no-ignore-removal' \
   'git add -A src/' \
@@ -88,6 +94,11 @@ for cmd in \
   'git status' \
   'git commit -m "run git add -A before this"' \
   "git commit -m 'git add .'" \
+  "git commit -m 'done.'" \
+  "git add 'path/file'" \
+  'git add "src/a.b"' \
+  "git add 'a'.'b'" \
+  'git add "a"."b"' \
   'echo add . | cat' \
   'git log -- .' \
   'git diff .' \

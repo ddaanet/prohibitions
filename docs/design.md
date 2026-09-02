@@ -208,11 +208,16 @@ find `git`, skip its global options (consuming the operand of `-C`,
 `-c`, `--git-dir`, `--work-tree`, `--namespace`, `--config-env`),
 require the subcommand to be exactly `add` or `stage`, then look for a
 whole-tree token among the rest. That is what keeps `git add-something
--A`, `git log -- .` and `git diff .` passing. One wrinkle: the quoted
-pathspecs `'*'` and `':/'` are *arguments*, not prose, so they are
-unwrapped to their bare form before the shared quote strip runs —
-otherwise the strip that protects commit messages would delete the very
-token the rule exists to catch.
+-A`, `git log -- .` and `git diff .` passing. One wrinkle: a quoted
+whole-tree pathspec is an *argument*, not prose, so it is unwrapped to
+its bare form before the shared quote strip runs — otherwise the strip
+that protects commit messages would delete the very token the rule
+exists to catch. The unwrap covers all four spellings in both quote
+styles, not just the two that must be quoted to work: `'*'` and `':/'`
+shipped covered because quoting them is how they are normally written,
+but `git add '.'` and `git add './'` are the same command as their bare
+forms and passed the guard until the list was completed. Any spelling
+the rule denies bare, it denies quoted.
 
 ### Abbreviated shas, with a closed exclusion list
 

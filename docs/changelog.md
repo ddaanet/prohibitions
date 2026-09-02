@@ -4,6 +4,22 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-09-02** — `deny-git-add-all.sh` denies the quoted whole-tree
+  pathspecs it was missing. Only `'*'` and `':/'` were unwrapped ahead of
+  the quote strip, so `git add '.'`, `git add "."`, `git add './'` and
+  `git add "./"` reached git unblocked while their bare spellings were
+  denied — the guard's own README line already claimed `.` was covered.
+  Red-checked: the four cases failed against the unchanged script, the
+  two quoted `:/` forms passed as expected. The escaping-heavy `sed` that
+  did the unwrap is now a loop over the four pathspecs using bash
+  substitution, with the pattern quoted so `*` stays literal rather than
+  becoming a glob. A probe for the obvious false-deny — `git add 'a'.'b'`,
+  one path `a.b` to the shell — showed it passes through, since the
+  unwrapped dot lands back inside a quoted region that then strips; that
+  case and the other adjacent-quote forms are now in the suite rather
+  than a throwaway run. The residual bound in the header was corrected to
+  the one that holds: an interpolated pathspec (`git add "$dir"` with
+  `dir=.`) is invisible to a textual hook and under-denies.
 - **2026-09-02** — `deny-ask-user-question.sh` splits its output three
   ways by audience. The recovery — ask inline in numbered plain prose,
   each question carrying a stated default — moved off
