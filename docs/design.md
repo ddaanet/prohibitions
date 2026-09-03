@@ -253,6 +253,16 @@ blanks UUIDs inside the body, not just inside frontmatter, because an
 frontmatter boundary to detect — gitlore always sees the whole file and
 does not need it.
 
+A second divergence is deliberate: a frontmatter fence is an exact `---`
+line here, where gitlore `strip()`s before comparing. Matching exactly
+costs one case — a `--- ` closer never closes, so the blanking runs to
+EOF and a sha in the body goes unreported — and buys the symmetric one,
+where a `--- ` line does not open a block whose contents would then be
+blanked away. The under-report is the cheaper failure: gitlore's
+commit-time gate still catches it, while a spurious open silently
+disarms the hook over a whole file. Both directions are asserted in
+`tests/deny-volatile-memory-state-test.sh`.
+
 ### A SessionStart check for sandbox exclusions, not a PreToolUse guard
 
 The prohibition is "never run sandboxed `git`, `find`, `ls` or `claude

@@ -4,6 +4,14 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-09-02** — The frontmatter fence stays an exact `---` match,
+  diverging from gitlore's `strip()`, and the suite now pins both
+  directions: a `--- ` opener is not a fence, so a sha in the block it
+  opens denies; a `--- ` closer never closes, so the blanking runs to EOF
+  and a body sha passes. The under-report is the accepted cost —
+  gitlore's commit-time gate still catches it, while accepting a padded
+  opener would let one stray line disarm the hook over a whole file. No
+  script change; rationale in `docs/design.md`.
 - **2026-09-02** — `deny-git-add-all.sh` denies the quoted whole-tree
   pathspecs it was missing. Only `'*'` and `':/'` were unwrapped ahead of
   the quote strip, so `git add '.'`, `git add "."`, `git add './'` and

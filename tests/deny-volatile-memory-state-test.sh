@@ -148,6 +148,19 @@ assert_passed "frontmatter originSessionId" \
   "$(run_write "$mem" '---' 'name: example' 'description: an example fact' \
     'metadata:' '  type: reference' "  originSessionId: $uuid" '---' '' 'A body naming no sha.')"
 
+# A fence is an exact `---` line, where gitlore's check-memory-hygiene.py
+# `strip()`s first. Deliberate divergence: a `--- ` opener is not a fence
+# here, so the block it opens is read as body and a sha inside it denies.
+assert_denied "trailing space on the opening fence is not frontmatter" \
+  "$(run_write "$mem" '--- ' 'name: example' "sha: $sha" '---' '' 'A body.')" "$sha"
+
+# The other side of the same rule, and the cost of it: a `--- ` closer never
+# closes, so the blanking runs to EOF and a body sha goes unreported. Under-
+# reporting is the accepted price — gitlore's gate still catches it at commit,
+# and loosening the match would let a `--- ` opener blank a real body.
+assert_passed "trailing space on the closing fence blanks to EOF" \
+  "$(run_write "$mem" '---' 'name: example' '--- ' '' "fixed as of $sha")"
+
 # An Edit fragment carries no frontmatter boundary to detect, so the UUID
 # shape itself has to be excluded.
 assert_passed "originSessionId in an Edit new_string" \
