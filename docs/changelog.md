@@ -4,6 +4,23 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-09-03** — `warn-sandbox-excluded-commands.sh` checks a fifth
+  pattern, `just release:*`. The other four cover commands the harness
+  can see; a recipe body it cannot, and `excludedCommands` matches
+  statically against the segments of the Bash call, so the `git:*` entry
+  never reaches the `git push` and `gh` calls `release.sh` makes inside
+  the recipe. `just release:*` and not `just:*`, which would unsandbox
+  every recipe in every repo — the prefix still covers the bump
+  arguments. The pattern was probed before being written down (two
+  identical recipes named `probe` and `release`, both writing outside
+  the sandbox's write allowlist: the first refused, the second
+  succeeded), because a two-word prefix is not obviously parseable by
+  the harness. `~/.claude/settings.json` already carried the entry;
+  this change is the hook, its docs and its tests catching up. Membership
+  is exact-string, so the suite now pins a bare `just release` and a
+  `just:*` alongside the existing bare-`git` case — red-checked against
+  the four-pattern script, where the bare-release case passed silently.
+
 - **2026-09-02** — The frontmatter fence stays an exact `---` match,
   diverging from gitlore's `strip()`, and the suite now pins both
   directions: a `--- ` opener is not a fence, so a sha in the block it

@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 # SessionStart check: warn when the harness sandbox is on but
-# `~/.claude/settings.json` does not exclude `git`, `find`, `ls` and `claude`
-# from it.
+# `~/.claude/settings.json` does not exclude `git`, `find`, `ls`, `claude` and
+# `just release` from it.
 #
 # Sandboxed, `git`/`find`/`ls` see phantom dotfiles — user-home dotfiles are
 # bind-mounted to `/dev/null` and show up as untracked character devices — and
-# a sandboxed `claude -p` silently drops every SessionStart hook. The harness's
-# own `sandbox.excludedCommands` runs those commands unsandboxed while the
+# a sandboxed `claude -p` silently drops every SessionStart hook. `just
+# release` is a different failure: a recipe body is invisible to the harness,
+# which matches `excludedCommands` statically against the segments of the Bash
+# call, so the `git:*` entry never reaches the `git push` and `gh` calls
+# `release.sh` makes *inside* the recipe. The harness's own
+# `sandbox.excludedCommands` runs those commands unsandboxed while the
 # auto-mode classifier still vets them, so the plugin only has to check the
 # setting is present: once, at session start, naming what is missing.
 #
-# Mechanical: exact-string membership of the four `<cmd>:*` prefixes in
+# Mechanical: exact-string membership of the five patterns in
 # `.sandbox.excludedCommands` — no globbing, the patterns are compared as
 # literals. Silence is the pass signal, so every way of not knowing warns
 # rather than passing — unparseable JSON, a `.sandbox` that is not an object,
@@ -37,7 +41,7 @@ settings="$HOME/.claude/settings.json"
 
 if ! jq empty "$settings" >/dev/null 2>&1; then
   warn "Could not parse $settings, so the sandbox exclusion check could not run.
-If the sandbox is enabled, run git, find, ls and claude -p with dangerouslyDisableSandbox: true until that file parses again — sandboxed, git/find/ls see phantom dotfiles (user-home dotfiles bind-mounted to /dev/null show up as untracked character devices) and a sandboxed claude -p silently drops every SessionStart hook." \
+If the sandbox is enabled, run git, find, ls, claude -p and just release with dangerouslyDisableSandbox: true until that file parses again — sandboxed, git/find/ls see phantom dotfiles (user-home dotfiles bind-mounted to /dev/null show up as untracked character devices), a sandboxed claude -p silently drops every SessionStart hook, and just release runs git push and gh inside a recipe body the harness cannot see, so the git exclusion never reaches them." \
     "prohibitions: could not parse $settings — sandbox excludedCommands left unchecked"
 fi
 
@@ -70,20 +74,23 @@ case "$state" in
       *) detail="the file is not a JSON object" ;;
     esac
     warn "In $settings, $detail, so the sandbox exclusion check could not run.
-If the sandbox is enabled, run git, find, ls and claude -p with dangerouslyDisableSandbox: true until that key is fixed — sandboxed, git/find/ls see phantom dotfiles (user-home dotfiles bind-mounted to /dev/null show up as untracked character devices) and a sandboxed claude -p silently drops every SessionStart hook." \
+If the sandbox is enabled, run git, find, ls, claude -p and just release with dangerouslyDisableSandbox: true until that key is fixed — sandboxed, git/find/ls see phantom dotfiles (user-home dotfiles bind-mounted to /dev/null show up as untracked character devices), a sandboxed claude -p silently drops every SessionStart hook, and just release runs git push and gh inside a recipe body the harness cannot see, so the git exclusion never reaches them." \
       "prohibitions: $settings — $detail, sandbox excludedCommands left unchecked"
     ;;
 esac
 
-# The four sandbox-sensitive prefixes, inline in the jq program that reads
+# The five sandbox-sensitive patterns, inline in the jq program that reads
 # them. Array subtraction is exact-string membership and preserves the order
-# on its left, so the result is the missing set, listed as written here.
+# on its left, so the result is the missing set, listed as written here. The
+# release entry carries its space and is `just release:*`, not `just:*`: the
+# prohibition is about the release path, which pushes to two remotes and calls
+# `gh`, not about every recipe in every repo.
 missing="$(jq -r '
-  ["git:*", "find:*", "ls:*", "claude:*"]
+  ["git:*", "find:*", "ls:*", "claude:*", "just release:*"]
   - ((.sandbox.excludedCommands? // []) | if type == "array" then . else [] end)
   | join(", ")' "$settings")"
 [ -n "$missing" ] || exit 0
 
 warn "The harness sandbox is enabled, but $settings does not list $missing under sandbox.excludedCommands.
-Until that is fixed, run git, find, ls and claude -p with dangerouslyDisableSandbox: true: sandboxed, git/find/ls see phantom dotfiles (user-home dotfiles bind-mounted to /dev/null show up as untracked character devices) and a sandboxed claude -p silently drops every SessionStart hook." \
+Until that is fixed, run git, find, ls, claude -p and just release with dangerouslyDisableSandbox: true: sandboxed, git/find/ls see phantom dotfiles (user-home dotfiles bind-mounted to /dev/null show up as untracked character devices), a sandboxed claude -p silently drops every SessionStart hook, and just release runs git push and gh inside a recipe body the harness cannot see, so the git exclusion never reaches them." \
   "prohibitions: $settings sandbox.excludedCommands is missing $missing — add them so those commands run unsandboxed"

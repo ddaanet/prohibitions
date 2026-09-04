@@ -107,7 +107,7 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
   | No volatile git state in memory files | `Write\|Edit` on `*.md` under a `memory` segment at a git tree root (`.git`-adjacent), `` `[0-9a-f]{5,40}` `` minus digits/hex-words/frontmatter/UUIDs/`hygiene-ok` lines | deny | `deny-volatile-memory-state.sh` |
   | GitHub bodies are not hard-wrapped | `Bash` on `gh pr\|issue create\|comment\|edit\|review` with `--body-file` | deny | `deny-hardwrapped-gh-body.sh` |
   | No whole-tree `git add` | `Bash` (`git add -A/--all/./:/`, `*`) | deny | `deny-git-add-all.sh` |
-  | Never run sandboxed `git`/`find`/`ls`/`claude -p` | `SessionStart`, checks `~/.claude/settings.json` `sandbox.excludedCommands` ⊇ `git:*`, `find:*`, `ls:*`, `claude:*` | **warn** (`additionalContext` + `systemMessage`) | `warn-sandbox-excluded-commands.sh` |
+  | Never run sandboxed `git`/`find`/`ls`/`claude -p`/`just release` | `SessionStart`, checks `~/.claude/settings.json` `sandbox.excludedCommands` ⊇ `git:*`, `find:*`, `ls:*`, `claude:*`, `just release:*` | **warn** (`additionalContext` + `systemMessage`) | `warn-sandbox-excluded-commands.sh` |
 
 - **`scripts/*.sh` + `tests/*-test.sh`** — one script per hook, one
   end-to-end test per script, driven by synthetic hook JSON payloads
@@ -265,12 +265,12 @@ disarms the hook over a whole file. Both directions are asserted in
 
 ### A SessionStart check for sandbox exclusions, not a PreToolUse guard
 
-The prohibition is "never run sandboxed `git`, `find`, `ls` or `claude
--p`": sandboxed, the first three see phantom dotfiles — user-home
-dotfiles bind-mounted to `/dev/null` show up as untracked character
-devices — and a sandboxed `claude -p` silently drops every SessionStart
-hook. A `PreToolUse` deny would strand every such call, which is most
-of them. The harness already has the right mechanism: its own
+The prohibition is "never run sandboxed `git`, `find`, `ls`, `claude
+-p` or `just release`": sandboxed, the first three see phantom dotfiles
+— user-home dotfiles bind-mounted to `/dev/null` show up as untracked
+character devices — and a sandboxed `claude -p` silently drops every
+SessionStart hook. A `PreToolUse` deny would strand every such call,
+which is most of them. The harness already has the right mechanism: its own
 `sandbox.excludedCommands` runs those commands unsandboxed
 automatically, while the auto-mode classifier still vets them for
 danger. So the plugin has nothing to block — it only has to check the
@@ -284,6 +284,23 @@ unsandboxed to be *truthful*; and the remaining harmless git commands
 pay only an unnecessary auto-classifier call. That is the price of a
 prefix exclusion, and it buys coverage of variants like `git -C X
 status` that an enumerated list would miss.
+
+`just release` is on the list for a different reason, and it does not
+inherit the `git:*` entry. A recipe body is invisible to the harness,
+which matches `excludedCommands` statically against the segments of the
+Bash call — so `git:*` never reaches the `git push` and `gh` calls
+`release.sh` makes *inside* the recipe, and the release path needs its
+own top-level entry. The pattern is `just release:*`, space included,
+not `just:*`: unsandboxing every recipe in every repo is far more than
+the prohibition asks for, and the same prefix-over-enumeration argument
+above covers the bump arguments (`just release minor`) for free. One
+matching segment unsandboxes the whole call, so `cd <dir> && just
+release` runs unsandboxed in its entirety. Verified empirically rather
+than assumed, since a two-word prefix is not obviously parseable: two
+recipes with identical bodies writing outside the sandbox's write
+allowlist, `just probe` refused with a read-only filesystem error and
+`just release` succeeded, with `$TMPDIR` expanding empty on the
+unsandboxed run.
 
 Silence is the pass signal, so the failure paths are loud: an
 unparseable `settings.json` warns instead of passing, because a check

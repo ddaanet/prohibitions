@@ -24,9 +24,12 @@ teaches the recovery instead of just saying no.
 - **Editing a file outside the project directory** — ask, since
   dropping a note in another repo is legitimate; only unreviewed edits
   aren't.
-- **A harness sandbox that doesn't exclude `git`, `find`, `ls` and
-  `claude`** — a `SessionStart` warning, since sandboxed those see
-  phantom dotfiles or silently drop SessionStart hooks.
+- **A harness sandbox that doesn't exclude `git`, `find`, `ls`,
+  `claude` and `just release`** — a `SessionStart` warning, since
+  sandboxed the first four see phantom dotfiles or silently drop
+  SessionStart hooks, and a recipe body is invisible to the harness, so
+  the `git` exclusion never reaches the `git push` and `gh` calls the
+  release runs inside it.
 
 See [`docs/design.md`](docs/design.md) for the full matcher table, the
 rationale behind each decision, and what was rejected along the way.
