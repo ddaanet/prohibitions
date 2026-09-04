@@ -33,7 +33,7 @@ Release tooling comes from the vendored `plugin-dev/` toolkit (see below).
 just precommit    # commit gate: lint plugin.json/hooks.json, shellcheck, bash -n, run every tests/*-test.sh
 just prerelease   # release gate, defaults to precommit
 just release [patch|minor|major]   # bump plugin.json, commit, tag, push, gh release
-just update-plugin-dev vX.Y.Z      # pull a newer plugin-dev/ toolkit version
+just update-plugin-dev dist-vX.Y.Z # pull a newer plugin-dev/ toolkit version (dist tag, never the bare vX.Y.Z)
 ```
 
 ## Layout
@@ -43,8 +43,9 @@ just update-plugin-dev vX.Y.Z      # pull a newer plugin-dev/ toolkit version
   release`; a PreToolUse hook (`plugin-dev/version-guard.sh`, wired in
   `.claude/settings.json`) refuses direct edits to it.
 - **`plugin-dev/`** — the `claude-plugin-dev` toolkit, vendored via `git
-  subtree` from `/Users/david/code/claude-plugin-dev`, pinned to a tag
-  (currently v0.5.0). Read-only: never hand-edit it. Changes go to the
+  subtree` from `/Users/david/code/claude-plugin-dev`, pinned to a dist
+  tag — `cat plugin-dev/VERSION` for which one. Read-only: never
+  hand-edit it. Changes go to the
   source repo, get tagged, then pulled in here with `just
   update-plugin-dev`.
 - **`hooks/hooks.json`**, **`scripts/`**, **`tests/`** — the rules'
