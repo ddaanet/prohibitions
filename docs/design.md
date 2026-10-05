@@ -92,9 +92,10 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
   `.version` reflects the *last released* version; a `PreToolUse` hook
   from the vendored toolkit (`plugin-dev/version-guard.sh`) refuses
   direct edits to it, so only `just release` can bump it.
-- **`hooks/hooks.json`** — wires nine rules to ten scripts (branch/worktree
+- **`hooks/hooks.json`** — wires nine rules to eleven scripts (branch/worktree
   creation needs two scripts to cover both its `Bash` and
-  `EnterWorktree` matchers):
+  `EnterWorktree` matchers, and the sandbox rule two — a
+  `SessionStart` check and a `Bash` deny):
 
   | Rule | Matcher | Decision | Script |
   | --- | --- | --- | --- |
@@ -107,7 +108,8 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
   | No volatile git state in memory files | `Write\|Edit` on `*.md` under a `memory` segment at a git tree root (`.git`-adjacent), `` `[0-9a-f]{5,40}` `` minus digits/hex-words/frontmatter/UUIDs/`hygiene-ok` lines | deny | `deny-volatile-memory-state.sh` |
   | GitHub bodies are not hard-wrapped | `Bash` on `gh pr\|issue create\|comment\|edit\|review` with `--body-file` | deny | `deny-hardwrapped-gh-body.sh` |
   | No whole-tree `git add` | `Bash` (`git add -A/--all/./:/`, `*`) | deny | `deny-git-add-all.sh` |
-  | Never run sandboxed `git`/`find`/`ls`/`claude -p`/`just release` | `SessionStart`, checks `~/.claude/settings.json` `sandbox.excludedCommands` ⊇ `git:*`, `find:*`, `ls:*`, `claude:*`, `just release:*` | **warn** (`additionalContext` + `systemMessage`) | `warn-sandbox-excluded-commands.sh` |
+  | Never run sandboxed `git`/`find`/`ls`/`claude -p`/`just release` | `SessionStart`, checks `~/.claude/settings.json` `sandbox.excludedCommands` ⊇ `git *`, `find *`, `ls *`, `claude *`, `just release *` (each also accepted as legacy `cmd:*`) | **warn** (`additionalContext` + `systemMessage`) | `warn-sandbox-excluded-commands.sh` |
+  | ″ | `Bash` with `dangerouslyDisableSandbox` unset, any subcommand matching a `sandbox.excludedCommands` entry, unless every subcommand matches and the call has none of the shapes the harness keeps sandboxed; quoted text and heredoc bodies skipped, a call with `$( … )`, backticks, `<( … )` or `>( … )` not matched | deny | `deny-sandboxed-excluded-command.sh` |
 
 - **`scripts/*.sh` + `tests/*-test.sh`** — one script per hook, one
   end-to-end test per script, driven by synthetic hook JSON payloads
@@ -263,44 +265,62 @@ commit-time gate still catches it, while a spurious open silently
 disarms the hook over a whole file. Both directions are asserted in
 `tests/deny-volatile-memory-state-test.sh`.
 
-### A SessionStart check for sandbox exclusions, not a PreToolUse guard
+### A SessionStart check for sandbox exclusions
 
 The prohibition is "never run sandboxed `git`, `find`, `ls`, `claude
 -p` or `just release`": sandboxed, the first three see phantom dotfiles
 — user-home dotfiles bind-mounted to `/dev/null` show up as untracked
 character devices — and a sandboxed `claude -p` silently drops every
-SessionStart hook. A `PreToolUse` deny would strand every such call,
-which is most of them. The harness already has the right mechanism: its own
-`sandbox.excludedCommands` runs those commands unsandboxed
-automatically, while the auto-mode classifier still vets them for
-danger. So the plugin has nothing to block — it only has to check the
-setting is present, once, at session start, and say what is missing.
-This replaces the retired `unsandbox-git-status` plugin.
+SessionStart hook. The harness's own `sandbox.excludedCommands` runs
+those commands unsandboxed, while the auto-mode classifier still vets
+them for danger, so the first half of the rule is checking that setting
+is present, once, at session start, and saying what is missing. This
+replaces the retired `unsandbox-git-status` plugin. The setting covers
+only part of the traffic, so a `PreToolUse` deny backs it (next
+section).
 
-The exclusion is `git:*`, not `git status`-shaped patterns. Mutating
+The exclusion is `git *`, not `git status`-shaped patterns. Mutating
 git commands must run unsandboxed to succeed at all; the
 dotfile-sensitive reads (`status`, `add`, `ls-files`) must run
 unsandboxed to be *truthful*; and the remaining harmless git commands
 pay only an unnecessary auto-classifier call. That is the price of a
-prefix exclusion, and it buys coverage of variants like `git -C X
-status` that an enumerated list would miss.
+prefix exclusion, and it buys coverage of every subcommand and argument
+an enumerated list would miss — though not of `git -C X status`, which
+the harness keeps sandboxed whatever the entry (next section).
 
 `just release` is on the list for a different reason, and it does not
-inherit the `git:*` entry. A recipe body is invisible to the harness,
+inherit the `git *` entry. A recipe body is invisible to the harness,
 which matches `excludedCommands` statically against the segments of the
-Bash call — so `git:*` never reaches the `git push` and `gh` calls
+Bash call — so `git *` never reaches the `git push` and `gh` calls
 `release.sh` makes *inside* the recipe, and the release path needs its
-own top-level entry. The pattern is `just release:*`, space included,
-not `just:*`: unsandboxing every recipe in every repo is far more than
+own top-level entry. The pattern is `just release *`, space included,
+not `just *`: unsandboxing every recipe in every repo is far more than
 the prohibition asks for, and the same prefix-over-enumeration argument
-above covers the bump arguments (`just release minor`) for free. One
-matching segment unsandboxes the whole call, so `cd <dir> && just
-release` runs unsandboxed in its entirety. Verified empirically rather
-than assumed, since a two-word prefix is not obviously parseable: two
-recipes with identical bodies writing outside the sandbox's write
-allowlist, `just probe` refused with a read-only filesystem error and
-`just release` succeeded, with `$TMPDIR` expanding empty on the
-unsandboxed run.
+above covers the bump arguments (`just release minor`) for free.
+Verified empirically rather than assumed, since a two-word prefix is not
+obviously parseable: two recipes with identical bodies writing outside
+the sandbox's write allowlist, `just probe` refused with a read-only
+filesystem error and `just release` succeeded, with `$TMPDIR` expanding
+empty on the unsandboxed run.
+
+Each pattern counts in either spelling. The documented form is `cmd *`
+— a trailing ` *` makes the arguments optional, so `git *` also matches
+a bare `git` — and the legacy `cmd:*` is still parsed as the same prefix
+(Claude Code permissions docs; bundle parser, CC 2.1.289). Accepting
+both keeps a settings file written before the docs changed from warning
+spuriously; a missing pattern is named in the documented form.
+
+The exclusion reaches far less than this section originally assumed.
+Since CC 2.1.277 *every* segment of a Bash call must match an entry —
+before, one matching segment unsandboxed the whole call, which the
+changelog calls a bug — so `git log | head` stays sandboxed. A `cd`
+anywhere in the call, a redirection to a file, a subshell or command
+substitution, a non-allowlisted `VAR=` prefix, and (#95455, open)
+git's value-taking global options `-C`, `-c`, `--git-dir`,
+`--work-tree` all keep the call sandboxed too. Observed on 2.1.289:
+`ls -la <path>` ran unsandboxed, while `ls -la <dir> | head`, `cd <dir>
+&& ls -la .bashrc` and `git -C <dir> status` ran sandboxed and showed
+phantom dotfiles. The setting is necessary but no longer sufficient.
 
 Silence is the pass signal, so the failure paths are loud: an
 unparseable `settings.json` warns instead of passing, because a check
@@ -311,6 +331,73 @@ tells the human who owns the file, naming only the patterns actually
 missing. Residual: only the user-level `~/.claude/settings.json` is
 read; project or managed settings that set the same key are not
 consulted.
+
+### Deny any sandboxed excluded command
+
+`deny-sandboxed-excluded-command.sh` denies a `Bash` call that leaves
+`dangerouslyDisableSandbox` unset when *any* of its subcommands matches
+an entry of `sandbox.excludedCommands`. The entries name the commands
+that misbehave sandboxed, and they misbehave wherever they sit in the
+call: `git commit | tail` still cannot write, `git status | sort` and
+`ls | head` still list phantom dotfiles. The harness excludes a call only
+when every subcommand matches and none of its refused shapes is present,
+so such calls run sandboxed with nothing to say so. Re-issued with the
+flag, the whole call leaves the sandbox and goes through the full
+permission checks, which is the correct outcome; the hook makes the
+failure early and explicit instead of silent.
+
+A call the harness already excludes passes — a bare `git status`, `ls a
+&& ls b`, `git log | ls`. My human partner asked for this: denying them
+cost a refused call and a re-issue on the commonest commands. The hook
+cannot read the harness's decision: in the 2.1.289 bundle the PreToolUse
+payload's `dangerouslyDisableSandbox` is only the model's flag, and the
+exclusion is computed after the hook runs. So it recomputes the decision,
+leaning the other way from the harness: the call passes only when every
+non-empty subcommand matches an entry *and* none of these shapes is
+present.
+
+- unquoted `<` or `>`, including `2>&1` and a heredoc's `<<` — `2>&1` was
+  observed sandboxed although the docs exempt fd duplication;
+- a `$` outside single quotes — unquoted `$HOME` observed sandboxed,
+  double-quoted untested;
+- unquoted glob characters `*`, `?`, `[` (a glob observed sandboxed), and
+  tilde or brace expansion by analogy, untested;
+- `(`, `)`, or a lone `&` (`&&` is fine);
+- a backslash-newline continuation;
+- any leading `VAR=` assignment — `LANG=C` was observed excluded, but the
+  harness strips only a short allowlist of variables, so every assignment
+  denies;
+- a skipped keyword or brace (`{ } ! if then elif else fi do done while
+  until`);
+- a command word of `cd`, `pushd`, `popd`, `sudo`, `eval` or `xargs`;
+- for git, any option between `git` and its subcommand (`-C`, `-c`,
+  `--git-dir`, `--no-pager`, …), or a `clone`, `init`, `worktree` or
+  `bundle` subcommand.
+
+Observed unsandboxed, and pinned as passes in the suite: `&&`, `|` and
+`;` chains, a quoted argument, a `\.` escape, a trailing `# comment`
+after a double space, and bare `git status --porcelain`. The asymmetry is
+the point. A shape wrongly refused costs one re-issued call; a shape
+wrongly let through runs silently sandboxed — the failure this hook
+exists to stop. So anything not observed or documented as excluded counts
+as refused, `git --no-pager` included although the bundle exempts boolean
+flags, and the list can only shrink on evidence. Tracking an
+undocumented, version-specific matcher is the cost; when the harness
+narrows its exclusion again, a call this hook passes runs sandboxed, as
+every such call did before the hook existed.
+
+What counts as a subcommand is deliberately simple. Quoted text and
+heredoc bodies are arguments, never subcommands. A call carrying a
+command or process substitution is not matched at all: quoting inside
+`$( … )` defeats a flat scan, and the call is left as it is. Leading
+`VAR=value` tokens and shell keywords are skipped, so `FOO=1 git
+status` and `if …; then ls; fi` still match. The patterns are read from
+`~/.claude/settings.json` in the harness's own syntax, so the deny
+tracks whatever the user excludes rather than a hard-coded list; with
+the sandbox off, or the file unreadable, it passes and the SessionStart
+check is what reports. Residual: wrappers (`timeout 5 git …`) and
+commands reached through `xargs`, `sudo` or `sh -c` are not matched, so
+the deny under-fires there.
 
 ### Tree-root anchoring by `.git` adjacency
 
@@ -369,7 +456,7 @@ Verdicts the tests encode:
 
 ### Deny output is stdout + exit 0, never stderr + exit 2
 
-All ten scripts emit their `hookSpecificOutput` JSON on stdout with
+All eleven scripts emit their `hookSpecificOutput` JSON on stdout with
 exit 0, including deny decisions. `exit 2` is a valid deny mechanism but
 carries no `ask` capability and no `systemMessage` channel for a
 human-facing summary distinct from the agent-facing reason — using the

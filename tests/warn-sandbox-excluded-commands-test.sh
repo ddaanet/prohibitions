@@ -4,7 +4,10 @@
 #
 # The contract under test: when the harness sandbox is enabled,
 # ~/.claude/settings.json must exclude the five sandbox-sensitive command
-# patterns — git:*, find:*, ls:*, claude:*, just release:* — from sandboxing.
+# patterns — git *, find *, ls *, claude *, just release * — from sandboxing.
+# Each may be spelled in the legacy `cmd:*` form, which Claude Code still parses
+# as the same prefix; a missing pattern is always named in the documented
+# `cmd *` form.
 # Sandboxed, the first four see phantom dotfiles or silently drop SessionStart
 # hooks, and `just release` runs git push and gh inside a recipe body the
 # harness cannot see, so a missing entry has to reach both channels:
@@ -12,10 +15,11 @@
 # dangerouslyDisableSandbox until it is fixed) and systemMessage for the human
 # who owns the settings file.
 #
-# The release pattern carries its space and is exact: `just release:*`, never
-# `just:*` and never a bare `just release`. Membership is string equality, so
-# the literal here has to match the literal in settings.json character for
-# character — the bare-entry cases below are what pins that.
+# The release pattern carries its space and is exact: `just release *` (or
+# `just release:*`), never `just *` and never a bare `just release`.
+# Membership is string equality against either spelling, so the literal here
+# has to match the literal in settings.json character for character — the
+# bare-entry cases below are what pins that.
 #
 # Silence is the pass signal, so the failure paths must be loud: no sandbox
 # means nothing to exclude and the hook stays quiet, but an unparseable
@@ -111,7 +115,7 @@ assert_warn_shape() { # assert_warn_shape <label> <settings-path>
   return 0
 }
 
-all_five=('git:*' 'find:*' 'ls:*' 'claude:*' 'just release:*')
+all_five=('git *' 'find *' 'ls *' 'claude *' 'just release *')
 
 # --- pass: nothing to warn about --------------------------------------------
 
@@ -136,16 +140,29 @@ home="$(new_home no-sandbox-key '{}')"
 run "$home"
 assert_pass 'settings.json with no sandbox key'
 
-# The configuration this hook exists to reach: all five present.
+# The configuration this hook exists to reach: all five present, in the
+# documented `cmd *` form.
 home="$(new_home all-present \
-  '{"sandbox": {"enabled": true, "excludedCommands": ["git:*","find:*","ls:*","claude:*","just release:*"]}}')"
+  '{"sandbox": {"enabled": true, "excludedCommands": ["git *","find *","ls *","claude *","just release *"]}}')"
 run "$home"
 assert_pass 'all five patterns excluded'
+
+# The legacy `cmd:*` spelling is still parsed as the same prefix, so a
+# settings file written before the docs changed is compliant, alone or mixed.
+home="$(new_home all-present-legacy \
+  '{"sandbox": {"enabled": true, "excludedCommands": ["git:*","find:*","ls:*","claude:*","just release:*"]}}')"
+run "$home"
+assert_pass 'all five patterns excluded, legacy cmd:* spelling'
+
+home="$(new_home all-present-mixed \
+  '{"sandbox": {"enabled": true, "excludedCommands": ["git *","find:*","ls *","claude:*","just release *"]}}')"
+run "$home"
+assert_pass 'all five patterns excluded, spellings mixed'
 
 # Membership, not equality: extra entries and a different order are still
 # compliant — a real settings.json accretes exclusions.
 home="$(new_home all-present-plus-extras \
-  '{"sandbox": {"enabled": true, "excludedCommands": ["claude:*","npm:*","just release:*","ls:*","git:*","find:*"]}}')"
+  '{"sandbox": {"enabled": true, "excludedCommands": ["claude *","npm *","just release *","ls *","git *","find *"]}}')"
 run "$home"
 assert_pass 'all five present among extras, unordered'
 
@@ -154,7 +171,7 @@ assert_pass 'all five present among extras, unordered'
 # under `set -o pipefail` that surfaces as a non-zero status or as jq's error
 # text on the merged stderr, so this pass case is what catches it.
 home="$(new_home oversized-payload \
-  '{"sandbox": {"enabled": true, "excludedCommands": ["git:*","find:*","ls:*","claude:*","just release:*"]}}')"
+  '{"sandbox": {"enabled": true, "excludedCommands": ["git *","find *","ls *","claude *","just release *"]}}')"
 pad="$tmp_root/pad.txt"   # via a file: 256KB through --arg overruns ARG_MAX
 head -c 262144 /dev/zero | tr '\0' 'x' >"$pad"
 out="$(jq -nc --rawfile p "$pad" \
@@ -177,46 +194,51 @@ done
 
 # A partial list: only the absent patterns get named, and the ones that are
 # present must not be reported as missing — a warning that relists satisfied
-# entries costs the human the diff they came for.
+# entries costs the human the diff they came for. One present entry uses the
+# legacy spelling, so it is the satisfied pattern, not its spelling, that is
+# left unnamed — and the missing ones are named in the documented form only.
 home="$(new_home partial-list \
-  '{"sandbox": {"enabled": true, "excludedCommands": ["git:*","ls:*"]}}')"
+  '{"sandbox": {"enabled": true, "excludedCommands": ["git *","ls:*"]}}')"
 settings="$home/.claude/settings.json"
 run "$home"
 assert_warn_shape 'partial excludedCommands' "$settings"
 asserts 'partial excludedCommands' systemMessage "$msg" 'excludedCommands'
-for p in 'find:*' 'claude:*' 'just release:*'; do
+for p in 'find *' 'claude *' 'just release *'; do
   asserts 'partial excludedCommands' additionalContext "$ctx" "$p"
   asserts 'partial excludedCommands' systemMessage "$msg" "$p"
 done
-refutes 'partial excludedCommands' systemMessage "$msg" 'git:*'
-refutes 'partial excludedCommands' systemMessage "$msg" 'ls:*'
+for p in 'git *' 'ls *' ':*'; do
+  refutes 'partial excludedCommands' systemMessage "$msg" "$p"
+done
 
-# Exact-string membership: a bare `git` entry is a different exclusion from
-# `git:*` and does not satisfy it, so `git:*` alone is missing.
+# Exact-string membership: a bare `git` entry is an exact match for `git` with
+# no arguments, a different exclusion from `git *`, so `git *` alone is
+# missing.
 home="$(new_home bare-prefix \
-  '{"sandbox": {"enabled": true, "excludedCommands": ["git", "find:*", "ls:*", "claude:*", "just release:*"]}}')"
+  '{"sandbox": {"enabled": true, "excludedCommands": ["git", "find *", "ls *", "claude *", "just release *"]}}')"
 settings="$home/.claude/settings.json"
 run "$home"
 assert_warn_shape 'bare git entry' "$settings"
 asserts 'bare git entry' systemMessage "$msg" 'excludedCommands'
-asserts 'bare git entry' additionalContext "$ctx" 'git:*'
-asserts 'bare git entry' systemMessage "$msg" 'git:*'
-for p in 'find:*' 'ls:*' 'claude:*' 'just release:*'; do
+asserts 'bare git entry' additionalContext "$ctx" 'git *'
+asserts 'bare git entry' systemMessage "$msg" 'git *'
+for p in 'find *' 'ls *' 'claude *' 'just release *'; do
   refutes 'bare git entry' systemMessage "$msg" "$p"
 done
 
 # Same exactness for the two-word pattern, which is the one most likely to be
-# written loosely: a bare `just release` is not `just release:*`, and `just:*`
-# is a different, broader exclusion that does not satisfy it either.
+# written loosely: a bare `just release` is not `just release *`, and `just *`
+# or `just:*` is a different, broader exclusion that does not satisfy it
+# either.
 home="$(new_home bare-release \
-  '{"sandbox": {"enabled": true, "excludedCommands": ["git:*", "find:*", "ls:*", "claude:*", "just release", "just:*"]}}')"
+  '{"sandbox": {"enabled": true, "excludedCommands": ["git *", "find *", "ls *", "claude *", "just release", "just *", "just:*"]}}')"
 settings="$home/.claude/settings.json"
 run "$home"
 assert_warn_shape 'bare just release entry' "$settings"
 asserts 'bare just release entry' systemMessage "$msg" 'excludedCommands'
-asserts 'bare just release entry' additionalContext "$ctx" 'just release:*'
-asserts 'bare just release entry' systemMessage "$msg" 'just release:*'
-for p in 'git:*' 'find:*' 'ls:*' 'claude:*'; do
+asserts 'bare just release entry' additionalContext "$ctx" 'just release *'
+asserts 'bare just release entry' systemMessage "$msg" 'just release *'
+for p in 'git *' 'find *' 'ls *' 'claude *'; do
   refutes 'bare just release entry' systemMessage "$msg" "$p"
 done
 
@@ -250,7 +272,7 @@ assert_warn_shape 'settings.json is an array, not an object' "$settings"
 asserts 'settings.json is an array' additionalContext "$ctx" 'not a JSON object'
 
 home="$(new_home excluded-not-a-list \
-  '{"sandbox": {"enabled": true, "excludedCommands": "git:*"}}')"
+  '{"sandbox": {"enabled": true, "excludedCommands": "git *"}}')"
 settings="$home/.claude/settings.json"
 run "$home"
 assert_warn_shape 'excludedCommands is a string' "$settings"

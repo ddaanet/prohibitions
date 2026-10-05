@@ -4,6 +4,36 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-10-04** — New `deny-sandboxed-excluded-command.sh`
+  (`PreToolUse` on `Bash`): denies a call with `dangerouslyDisableSandbox`
+  unset when any subcommand matches a `sandbox.excludedCommands` entry
+  read from `~/.claude/settings.json`. Since CC 2.1.277 the harness
+  exempts a call only when every subcommand matches, so `git commit |
+  tail` or `ls | sort` ran sandboxed with nothing to say so. A call the
+  harness already exempts passes: the hook cannot see that decision, so
+  it recomputes it conservatively — every subcommand matches and no
+  refused shape is present (unquoted redirect, glob, tilde or brace
+  expansion, `(`, `)` or lone `&`; `$` outside single quotes;
+  backslash-newline; any `VAR=` prefix or keyword; `cd`, `sudo`,
+  `xargs` and kin; a git option before the subcommand, or `git clone`,
+  `init`, `worktree`, `bundle`). Shapes come from observation on 2.1.289,
+  the docs, or are untested and refused by default. Quoted text and
+  heredoc bodies are skipped; a call with a command or process
+  substitution is not matched. Each refused-shape check was disabled in
+  turn to confirm the suite reds without it.
+
+- **2026-10-04** — `warn-sandbox-excluded-commands.sh` accepts each of
+  its five patterns in the documented `cmd *` spelling (`git *`, …,
+  `just release *`) as well as the legacy `cmd:*`, and names a missing
+  one in the documented form. Before this, a settings file already
+  migrated to `git *` warned that every pattern was missing. `cmd:*` is
+  still parsed by Claude Code as the same prefix (docs and the 2.1.289
+  bundle), so dropping it would only add spurious warnings. A Sonnet
+  docs probe and local probes also showed the exclusion narrowed in CC
+  2.1.277 — every segment must match, and `cd`, redirects, substitution
+  and `git -C` keep a call sandboxed — so `docs/design.md` drops its
+  claim that one matching segment unsandboxes the call.
+
 - **2026-09-03** — `warn-sandbox-excluded-commands.sh` checks a fifth
   pattern, `just release:*`. The other four cover commands the harness
   can see; a recipe body it cannot, and `excludedCommands` matches

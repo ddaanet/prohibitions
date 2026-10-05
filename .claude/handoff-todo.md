@@ -1,7 +1,6 @@
-## Open decisions
-
-- Which `memory/MEMORY.md` entries retire. The index is 24323 bytes over 85 lines, every one of them a `ddaanet` tier line — this repo carries no project index lines of its own — leaving ~660 bytes under Claude Code's ~24.4KB loader cutoff. Re-measure before deciding. The lever is retiring entries, never shortening lines: shortening is where routing gets lost.
-
 ## Remaining
 
-- Cut a release. It covers the quoted whole-tree `git add` fix, the exact-`---` frontmatter fence, and the `just release:*` sandbox exclusion.
+- Publish memory with /gitlore:push.
+- Cut the release with `just release minor` (0.2.3 to 0.3.0).
+- After the plugin update, dogfood the deny hook: a bare `git status` must pass, `git status | head` must deny.
+- Triage the four untracked briefs in `inbox/`; they are proposals for future hooks, not release content, and stay out of commits until accepted.

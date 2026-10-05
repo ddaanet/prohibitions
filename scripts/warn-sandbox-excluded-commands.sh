@@ -8,7 +8,7 @@
 # a sandboxed `claude -p` silently drops every SessionStart hook. `just
 # release` is a different failure: a recipe body is invisible to the harness,
 # which matches `excludedCommands` statically against the segments of the Bash
-# call, so the `git:*` entry never reaches the `git push` and `gh` calls
+# call, so the `git *` entry never reaches the `git push` and `gh` calls
 # `release.sh` makes *inside* the recipe. The harness's own
 # `sandbox.excludedCommands` runs those commands unsandboxed while the
 # auto-mode classifier still vets them, so the plugin only has to check the
@@ -16,9 +16,12 @@
 #
 # Mechanical: exact-string membership of the five patterns in
 # `.sandbox.excludedCommands` — no globbing, the patterns are compared as
-# literals. Silence is the pass signal, so every way of not knowing warns
-# rather than passing — unparseable JSON, a `.sandbox` that is not an object,
-# an `excludedCommands` that is not a list: a check that could not run must
+# literals. Each pattern counts in either spelling: the documented `git *`, or
+# the legacy `git:*`, which Claude Code still parses as the same prefix. A
+# missing pattern is named in the documented form. Silence is the pass
+# signal, so every way of not knowing warns rather than passing —
+# unparseable JSON, a `.sandbox` that is not an object, an
+# `excludedCommands` that is not a list: a check that could not run must
 # not look like one that ran clean. Residual: only the user-level
 # `~/.claude/settings.json` is read;
 # a project or managed settings file setting the same key is not consulted, so
@@ -80,14 +83,18 @@ If the sandbox is enabled, run git, find, ls, claude -p and just release with da
 esac
 
 # The five sandbox-sensitive patterns, inline in the jq program that reads
-# them. Array subtraction is exact-string membership and preserves the order
-# on its left, so the result is the missing set, listed as written here. The
-# release entry carries its space and is `just release:*`, not `just:*`: the
-# prohibition is about the release path, which pushes to two remotes and calls
-# `gh`, not about every recipe in every repo.
+# them, each as its documented spelling followed by the legacy one. A pattern
+# is missing when array subtraction leaves both spellings standing — that is,
+# neither is in the list — and it is then named by its first, documented
+# spelling, in the order written here. The release entry carries its space and
+# is `just release *`, not `just *`: the prohibition is about the release path,
+# which pushes to two remotes and calls `gh`, not about every recipe in every
+# repo.
 missing="$(jq -r '
-  ["git:*", "find:*", "ls:*", "claude:*", "just release:*"]
-  - ((.sandbox.excludedCommands? // []) | if type == "array" then . else [] end)
+  ((.sandbox.excludedCommands? // []) | if type == "array" then . else [] end) as $have
+  | [["git *", "git:*"], ["find *", "find:*"], ["ls *", "ls:*"],
+     ["claude *", "claude:*"], ["just release *", "just release:*"]]
+  | map(select((. - $have) == .) | .[0])
   | join(", ")' "$settings")"
 [ -n "$missing" ] || exit 0
 

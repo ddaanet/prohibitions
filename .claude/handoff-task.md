@@ -1,5 +1,3 @@
 ## Current task
 
-Nothing in flight. `just release:*` is the fifth pattern the SessionStart sandbox-exclusion check requires, carried through the hook script, its suite (including a red-checked case pinning that a bare `just release` and a `just:*` both fail exact-string membership), `docs/design.md`, `docs/changelog.md` and `README.md`. `~/.claude/settings.json` already carried the entry and was verified, not assumed.
-
-The session's other thread, the `markdown-formatter-choice` list-marker claim, is settled: the originating gitlore session records mdslw and remark wrapping a line so it starts `+ …`, which re-parses as a list item — real, and now in the fact's body rather than only its description.
+Shipping `deny-sandboxed-excluded-command.sh` with its harness-excluded carve-out, plus the SessionStart check's `cmd *` syntax, as release 0.3.0 (`just release minor`). The quoted `git add` fix, the exact-`---` fence and the `just release *` check already shipped in v0.2.3, so this release carries only those two changes. A preflight came back GO once the work is committed; its warnings (executable bits, the `git -C` contradiction in `docs/design.md`, leftover `git:*` spellings) are fixed. The hook only goes live in sessions after the release and a plugin update.

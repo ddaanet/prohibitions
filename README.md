@@ -30,6 +30,13 @@ teaches the recovery instead of just saying no.
   SessionStart hooks, and a recipe body is invisible to the harness, so
   the `git` exclusion never reaches the `git push` and `gh` calls the
   release runs inside it.
+- **An excluded command that would still run sandboxed** — deny, unless
+  the call sets `dangerouslyDisableSandbox`. The harness exempts a call
+  only when every part of it is excluded, so `git commit | tail` or
+  `ls | sort` runs sandboxed and fails or lists phantom dotfiles. Calls
+  the harness already exempts, such as a bare `git status`, pass; where
+  the hook cannot tell — a redirect, a `$`, a glob, `git -C` — it
+  denies.
 
 See [`docs/design.md`](docs/design.md) for the full matcher table, the
 rationale behind each decision, and what was rejected along the way.

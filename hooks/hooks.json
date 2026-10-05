@@ -44,6 +44,11 @@
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/ask-branch-worktree-bash.sh\"",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/deny-sandboxed-excluded-command.sh\"",
+            "timeout": 5
           }
         ]
       },
