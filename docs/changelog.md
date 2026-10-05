@@ -4,6 +4,15 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-10-05** — `deny-git-add-all.sh` follows "A deny splits three
+  ways by audience": the reason only refuses, the recovery (stage the
+  paths you mean) moves to `additionalContext`, and `systemMessage` is
+  `blocked: whole-tree git add`. It stops offering `git add -u`, which
+  stays allowed: the old reason warned about a half-finished sibling
+  edit and then recommended the command that stages it. The rationale
+  that rode every deny already lives in the script header and design.md.
+  From an inbox brief written in another repo.
+
 - **2026-10-04** — New `deny-sandboxed-excluded-command.sh`
   (`PreToolUse` on `Bash`): denies a call with `dangerouslyDisableSandbox`
   unset when any subcommand matches a `sandbox.excludedCommands` entry

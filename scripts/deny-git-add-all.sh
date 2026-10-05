@@ -5,10 +5,13 @@
 # "Add all" stages whatever happens to be in the tree, including files
 # deliberately left pending — a half-finished sibling edit, a scratch
 # fixture, a brief written for another repo — and the author only finds
-# out after the commit exists. Stage the paths you mean, or `git add -u`
-# for already-tracked files only; `-u` stays allowed because it cannot
-# introduce anything untracked. Rationale: docs/design.md, "Deny, not ask,
-# for whole-tree `git add`".
+# out after the commit exists. The redirect is to stage the paths you
+# mean. `-u` stays allowed because it cannot introduce anything untracked,
+# but the deny never offers it: it stages every tracked edit, a
+# half-finished sibling included. The deny splits by audience: the reason
+# only refuses, additionalContext carries the recovery to the agent, and
+# systemMessage is the human's curt line. Rationale: docs/design.md,
+# "Deny, not ask, for whole-tree `git add`".
 #
 # Mechanical, not a shell parser. Heredoc bodies and quoted regions are
 # stripped first (as in deny-no-verify.sh) so prose mentioning `git add
@@ -123,11 +126,12 @@ done <<<"$segments"
 
 [ -n "$denied" ] || exit 0
 
-agent_reason="git add $denied stages everything pending in the tree, including files deliberately left unstaged — a half-finished sibling edit, a scratch fixture, a brief for another repo. The author only finds out after the commit exists.
-Stage the paths you mean (\`git add <path>...\`), or \`git add -u\` for already-tracked files only."
+deny_reason="Whole-tree \`git add $denied\` is refused."
 
-human_msg="blocked: whole-tree git add refused — name the paths, or git add -u for tracked files only"
+agent_context="Stage the paths you mean: \`git add <path>...\`."
 
-jq -nc --arg r "$agent_reason" --arg s "$human_msg" \
-  '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}, systemMessage: $s}'
+human_msg='blocked: whole-tree git add'
+
+jq -nc --arg r "$deny_reason" --arg a "$agent_context" --arg s "$human_msg" \
+  '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r, additionalContext: $a}, systemMessage: $s}'
 exit 0

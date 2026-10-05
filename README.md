@@ -18,7 +18,7 @@ teaches the recovery instead of just saying no.
 - **No volatile git state** (commit ids, abbreviated or full) **written
   into memory files** — deny.
 - **Never `git add -A` / `--all` / `.`** (whole-tree staging) — deny;
-  name the paths, or `git add -u` for tracked files only.
+  name the paths.
 - **Creating or switching a branch or worktree** — ask, since it can be
   legitimate (executing an instruction to merge onto a named base).
 - **Editing a file outside the project directory** — ask, since

@@ -200,7 +200,11 @@ paths. An `ask` would therefore be pure latency — the correct answer to
 the prompt is always the same — so this rule denies. `git add -u` stays
 allowed: it is bounded to already-tracked files and cannot stage
 something the author never told git about, which is the whole failure
-mode. `-A` with a pathspec (`git add -A src/`) is still denied and
+mode. The deny does not *offer* it, though: `-u` stages every tracked
+edit, a half-finished sibling included, so a redirect naming it would
+recommend the very spill the refusal exists to stop. The redirect is to
+name the paths, on `additionalContext` per "A deny splits three ways by
+audience". `-A` with a pathspec (`git add -A src/`) is still denied and
 nothing is lost by that: since git 2.0 a plain `git add <pathspec>`
 already behaves as `-A` within that pathspec, so the flag is redundant
 wherever it is safe.

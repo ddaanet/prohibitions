@@ -28,14 +28,16 @@ assert_denied() {  # $1 = label, $2 = hook output
     >/dev/null 2>&1 || { fail "[$1] was not denied: $2"; return; }
   [ -n "$(printf '%s' "$2" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""')" ] \
     || fail "[$1] deny carried no permissionDecisionReason for the agent"
-  # The remedy is mechanical, so the reason must carry it: `git add -u` for
-  # tracked files only, and staging the paths you actually mean.
-  printf '%s' "$2" | jq -e '.hookSpecificOutput.permissionDecisionReason | contains("git add -u")' \
-    >/dev/null 2>&1 || fail "[$1] reason missing the tracked-only alternative \`git add -u\`: $2"
-  printf '%s' "$2" | jq -e '.hookSpecificOutput.permissionDecisionReason | ascii_downcase | test("path")' \
-    >/dev/null 2>&1 || fail "[$1] reason does not tell the agent to stage named paths: $2"
-  printf '%s' "$2" | jq -e '.systemMessage | contains("git add -u")' \
-    >/dev/null 2>&1 || fail "[$1] systemMessage missing \`git add -u\`: $2"
+  # The recovery is agent-only, so it rides additionalContext: stage the
+  # paths you actually mean.
+  printf '%s' "$2" | jq -e '.hookSpecificOutput.additionalContext // "" | ascii_downcase | test("path")' \
+    >/dev/null 2>&1 || fail "[$1] additionalContext does not tell the agent to stage named paths: $2"
+  printf '%s' "$2" | jq -e '.systemMessage // "" | startswith("blocked:")' \
+    >/dev/null 2>&1 || fail "[$1] systemMessage is not a curt blocked line: $2"
+  # `git add -u` stays allowed but is never offered: it stages every tracked
+  # edit, a half-finished sibling included, which is what the deny prevents.
+  printf '%s' "$2" | jq -e '[.hookSpecificOutput.permissionDecisionReason, .hookSpecificOutput.additionalContext, .systemMessage] | map(. // "" | contains("git add -u")) | any | not' \
+    >/dev/null 2>&1 || fail "[$1] deny offers \`git add -u\` as a redirect: $2"
 }
 
 # Real must-block traffic: whole-tree staging in every form the rule names —

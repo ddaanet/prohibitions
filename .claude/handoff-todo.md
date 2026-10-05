@@ -1,6 +1,9 @@
 ## Remaining
 
-- Publish memory with /gitlore:push.
-- Cut the release with `just release minor` (0.2.3 to 0.3.0).
-- After the plugin update, dogfood the deny hook: a bare `git status` must pass, `git status | head` must deny.
-- Triage the four untracked briefs in `inbox/`; they are proposals for future hooks, not release content, and stay out of commits until accepted.
+Triage report: `inbox/triage-report.md`. My human partner took its defaults for briefs 1–3, in order 3, 1, 2, 4.
+
+- Brief 1 (piped gate): deny only when backgrounded or when `&&`/`||` consumes the status, plus a `PostToolUse` failure-text nudge for foreground pipes; runner match by `just` recipe prefix (`precommit`, `prerelease`, `release`, `lint`, `test`) plus `bats`/`pytest` incl. `uv run`/`python -m`; pass `pipefail`/`PIPESTATUS` and probe flags; redirect text names the act ("exit status visible: no pipe, or `set -o pipefail` first"); coordinate the text with `deny-sandboxed-excluded-command.sh` on piped `just release`.
+- Brief 2 (worktree-discarding git): first read the CC bundle on what a hook `ask` does in a subagent; deny bulk forms, ask per-file restores (redirect: `cp` backup to `$TMPDIR`); fix the form list per the report; one branch-vs-path rule shared with `ask-branch-worktree-bash.sh`; extract `strip_heredocs` and the git token walk into `scripts/lib/` then.
+- Follow-on: migrate the other denies with recovery on the reason (`deny-volatile-memory-state`, `deny-hardwrapped-gh-body`, `deny-plugin-dev-edit`), one commit each.
+- Brief 4 (plugin-dir edits): reproduced in auto mode, the Edit fails as "classifier gave no verdict (it skipped this action)" with no mention of the cause. Hook probe on Linux: a `SessionStart` and a `PreToolUse` hook both reach the `claude` process as grandparent (via `/bin/sh -c`); `/proc/<pid>/cmdline` keeps a spaced `--plugin-dir` intact and `/proc/<pid>/cwd` resolves a relative one; `CLAUDE_CODE_PLUGIN_DIRS` is unset for flag launches. The walk must stop at the first `claude` ancestor, since a nested `claude -p` sits under the outer session. macOS unprobed. Open: per-edit `PreToolUse` deny vs `SessionStart` warning (proposed: per-edit).
+- plugin-dev update to `dist-v0.9.0` dropped for now.
