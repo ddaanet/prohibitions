@@ -37,6 +37,11 @@ teaches the recovery instead of just saying no.
   the harness already exempts, such as a bare `git status`, pass; where
   the hook cannot tell — a redirect, a `$`, a glob, `git -C` — it
   denies.
+- **A gate or test runner piped so the pipe's exit status stands in for
+  its own** (`just precommit | tail`, `pytest | tail`) — deny when the
+  call runs in the background or `&&`/`||` follows the pipe; otherwise a
+  `PostToolUse` warning when the output shows a failure the exit 0 hid.
+  `set -o pipefail` first, or no pipe, passes.
 
 See [`docs/design.md`](docs/design.md) for the full matcher table, the
 rationale behind each decision, and what was rejected along the way.

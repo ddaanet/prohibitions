@@ -24,6 +24,12 @@ mechanical trigger and stays prose — this plugin does not aim to
 replace the whole file, only the rules with a clean detection. Full
 scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
 
+The same economics hold for a workflow or harness hazard that no
+`shared-claude.md` rule names, when its failure is silent and its
+trigger mechanical: a gate piped into `tail` reports `tail`'s exit
+status. Prose there would be a new always-on line rather than a
+converted one, so such a hazard gets a hook directly or nothing.
+
 ## Requirements
 
 ### Functional
@@ -92,10 +98,11 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
   `.version` reflects the *last released* version; a `PreToolUse` hook
   from the vendored toolkit (`plugin-dev/version-guard.sh`) refuses
   direct edits to it, so only `just release` can bump it.
-- **`hooks/hooks.json`** — wires nine rules to eleven scripts (branch/worktree
+- **`hooks/hooks.json`** — wires ten rules to thirteen scripts (branch/worktree
   creation needs two scripts to cover both its `Bash` and
-  `EnterWorktree` matchers, and the sandbox rule two — a
-  `SessionStart` check and a `Bash` deny):
+  `EnterWorktree` matchers, the sandbox rule two — a
+  `SessionStart` check and a `Bash` deny — and the piped-gate rule two,
+  a `PreToolUse` deny and a `PostToolUse` warning):
 
   | Rule | Matcher | Decision | Script |
   | --- | --- | --- | --- |
@@ -110,9 +117,12 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
   | No whole-tree `git add` | `Bash` (`git add -A/--all/./:/`, `*`) | deny | `deny-git-add-all.sh` |
   | Never run sandboxed `git`/`find`/`ls`/`claude -p`/`just release` | `SessionStart`, checks `~/.claude/settings.json` `sandbox.excludedCommands` ⊇ `git *`, `find *`, `ls *`, `claude *`, `just release *` (each also accepted as legacy `cmd:*`) | **warn** (`additionalContext` + `systemMessage`) | `warn-sandbox-excluded-commands.sh` |
   | ″ | `Bash` with `dangerouslyDisableSandbox` unset, any subcommand matching a `sandbox.excludedCommands` entry, unless every subcommand matches and the call has none of the shapes the harness keeps sandboxed; quoted text and heredoc bodies skipped, a call with `$( … )`, backticks, `<( … )` or `>( … )` not matched | deny | `deny-sandboxed-excluded-command.sh` |
+  | A gate's exit status must not be the pipe's | `Bash`, a runner (`just` precommit/prerelease/release/lint/test recipe, `pytest`, `bats`, `run-bats.sh`) at a pipeline start with a pipe after it, run in the background or followed by `&&`/`\|\|`; `pipefail`/`PIPESTATUS` and probe flags pass | deny | `deny-piped-gate-status.sh` |
+  | ″ | `PostToolUse` on `Bash`, the same runner piped, foreground, output carrying a failure line | **warn** (`additionalContext` + `systemMessage`) | `warn-piped-gate-failure.sh` |
 
 - **`scripts/*.sh` + `tests/*-test.sh`** — one script per hook, one
-  end-to-end test per script, driven by synthetic hook JSON payloads
+  end-to-end test per script; `scripts/lib/` holds detection shared by
+  two hooks of one rule, sourced rather than run, driven by synthetic hook JSON payloads
   through `jq`. `just precommit` runs `shellcheck`, `bash -n`,
   and every `tests/*-test.sh`. One test is not paired with a hook:
   `tests/portability-test.sh` is a static scan of every script and
@@ -402,6 +412,50 @@ the sandbox off, or the file unreadable, it passes and the SessionStart
 check is what reports. Residual: wrappers (`timeout 5 git …`) and
 commands reached through `xargs`, `sudo` or `sh -c` are not matched, so
 the deny under-fires there.
+
+### Piped gates: deny where the status is the verdict, warn elsewhere
+
+Without `pipefail`, `just precommit | tail -40` exits with `tail`'s
+status, so a failing gate reports success. Transcripts show it is the
+habitual form, not a slip: of `just precommit` calls with the runner at
+a command start, 864 were piped and 667 bare, and 85 of the piped ones
+carried failure text in a result marked successful. The brief that
+proposed this hook came from a backgrounded run whose completion notice
+read `exit code 0` over a failed recipe.
+
+A blanket deny on every piped runner was rejected. It would fire on
+about 3,700 calls in that corpus, some 6% of all `Bash` calls, and its
+redirect — run it bare — floods context everywhere but gitlore, whose
+`run-bats.sh` prints only failures; raw `bats`, `pytest` and a `just`
+recipe echo everything, which is why agents pipe them. The deny is
+scoped to the two shapes where the masked status *is* the verdict: a
+call run in the background, whose notice is all the agent sees, and a
+pipeline followed by `&&` or `||`, which commits or pushes on it (124
+`<gate> | tail && git commit` calls in the corpus). A foreground pipe
+with nothing chained passes, and a `PostToolUse` hook reads its output
+instead: a piped call that exits 0 arrives there, and when the output
+carries a failure line the hook quotes it back as `additionalContext`.
+That costs nothing on a green run.
+
+`pipefail` or `PIPESTATUS` anywhere in the command passes, since either
+keeps the gate's own status. So do probes that report no verdict
+(`--version`, `--collect-only`, `--list` and kin). The redirect names
+the act — drop the pipe, or start with `set -o pipefail;` — rather than
+"run it bare". A piped `just release` is also refused by
+`deny-sandboxed-excluded-command.sh`, whose redirect keeps the command
+as it is; the two compose rather than conflict, since one adds the
+sandbox flag and the other the `pipefail`.
+
+Runners match by name: `just` recipes named precommit, prerelease,
+release, lint or test, alone or with a `-`/`_` suffix, and `pytest`,
+`bats`, `run-bats.sh` by basename, behind `VAR=` prefixes, `(`,
+`timeout`, `uv run` or `python -m`. Residual: other gate names (`just
+check`, `make test`), runners inside `bash -c` or `$( … )`, and masking
+without a pipe (`just precommit > log; tail log`) go unmatched; the
+`PostToolUse` half recognises only the listed output formats. The
+detector lives in `scripts/lib/piped-gate.sh`, the first shared
+library here; the other scripts' `strip_heredocs` copies stay where
+they are until a further hook needs the same walk.
 
 ### Tree-root anchoring by `.git` adjacency
 

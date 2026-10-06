@@ -4,6 +4,18 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-10-06** — New `deny-piped-gate-status.sh` (`PreToolUse` on
+  `Bash`) and `warn-piped-gate-failure.sh` (`PostToolUse` on `Bash`),
+  sharing `scripts/lib/piped-gate.sh`. A gate or test runner piped into
+  another command reports the pipe's exit status. The deny fires only
+  where that status is the verdict: a backgrounded call, or a pipeline
+  followed by `&&`/`||`; the warning quotes the first failure line from
+  a foreground piped run that exited 0. Scoped down from an inbox
+  brief's blanket deny, which a transcript scrape put at about 6% of all
+  `Bash` calls. `pipefail`, `PIPESTATUS` and probe flags pass. The
+  precommit and portability globs now include `scripts/lib/`. Each
+  detector condition was disabled in turn to confirm a suite reds.
+
 - **2026-10-05** — `deny-git-add-all.sh` follows "A deny splits three
   ways by audience": the reason only refuses, the recovery (stage the
   paths you mean) moves to `additionalContext`, and `systemMessage` is

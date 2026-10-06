@@ -44,7 +44,7 @@ code_lines() { # code_lines <file>; prints `<line-number>:<text>` for real code
 # check <label> <ere> <remedy>
 check() {
   local label="$1" pattern="$2" remedy="$3" f hit
-  for f in scripts/*.sh tests/*.sh; do
+  for f in scripts/*.sh scripts/lib/*.sh tests/*.sh; do
     [ "$f" != "$self" ] || continue
     hit="$(code_lines "$f" | grep -E "$pattern" || true)"
     [ -z "$hit" ] || fail "$f: $label — $remedy
