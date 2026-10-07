@@ -8,3 +8,5 @@ __pycache__/
 
 .claude/settings.local.json
 .claude/handoff-session
+
+/dist/plugin/
