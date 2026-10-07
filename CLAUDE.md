@@ -15,9 +15,9 @@ in every one of those repos, while a hook is paid only when the situation
 arises.
 
 **Status: implemented.** `hooks/hooks.json` wires up the seven PreToolUse
-hooks from the bootstrap brief plus three later ones — `deny-git-add-all`,
-`deny-sandboxed-excluded-command` and the `SessionStart` check
-`warn-sandbox-excluded-commands` — each with a
+hooks from the bootstrap brief plus later ones — among them
+`deny-git-add-all`, `deny-worktree-discarding-git`, the piped-gate pair and
+the `SessionStart` check `warn-sandbox-excluded-commands` — each with a
 script in `scripts/` and an end-to-end test in `tests/`. The living design
 — full matcher table, design decisions with rationale, rejected
 alternatives — is

@@ -4,6 +4,36 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-10-07** — New `deny-worktree-discarding-git.sh` (`PreToolUse`
+  on `Bash`), from an inbox brief and its triage. It denies git commands
+  that discard uncommitted work in bulk — `reset --hard`/`--merge`,
+  `clean -f` without a dry run, `stash drop`/`clear`, a forced
+  `checkout`/`switch` (a forced create included), and a
+  `checkout`/`restore` of `.`, `:/`, other `:` magic, a glob, a trailing
+  `/` or a directory — and asks before a restore of named files.
+  `scripts/lib/shell-text.sh` gains `shell_split`, a quote-aware awk
+  splitter, and `scripts/lib/git-command.sh` gains `git_checkout_parse`,
+  the branch-vs-path rule, which runs `git rev-parse` for an operand that
+  exists on disk or has a pathspec shape, since a rev wins over a file of
+  the same name. `git_walk` requires `git` to be the command word, which
+  moves `deny-git-add-all.sh` too: `echo git add -A` passes, by design;
+  reserved-word, `sudo`, `nohup`, `exec` and `doas` prefixes still deny;
+  `2>/dev/null git add -A` passes until that hook moves onto
+  `shell_split`; `xargs git add -A` is a residual.
+  Every deny and ask case written before the implementation failed
+  against an inert stub. A review of the first implementation found
+  `git` after a reserved word or `sudo` unwalked, a forced create
+  passing, two short-cluster misreads (`restore -sHEAD .`, `clean -fd
+  -enode`), the space spelling of `--pathspec-from-file` dropped, and a
+  quadratic `shell_split`; each gained a case. On the final code each
+  rule was disabled in turn: the bulk shapes redded `git checkout :/`,
+  `git checkout -- '*.txt'` and `git checkout -- "$d"/`; the clean `-n`
+  exemption `git clean -fn` and `git clean --dry-run -f`; the rev test
+  `git checkout both`; `cd` tracking `cd src && git checkout a.txt`.
+  Reverting `shell_split`'s buffered appends redded the 120 KB bound.
+  Rationale in `docs/design.md`, "Deny bulk discards, ask per-file
+  restores".
+
 - **2026-10-06** — New `deny-piped-gate-status.sh` (`PreToolUse` on
   `Bash`) and `warn-piped-gate-failure.sh` (`PostToolUse` on `Bash`),
   sharing `scripts/lib/piped-gate.sh`. A gate or test runner piped into

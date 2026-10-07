@@ -27,8 +27,10 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
 The same economics hold for a workflow or harness hazard that no
 `shared-claude.md` rule names, when its failure is silent and its
 trigger mechanical: a gate piped into `tail` reports `tail`'s exit
-status. Prose there would be a new always-on line rather than a
-converted one, so such a hazard gets a hook directly or nothing.
+status, and a `git checkout -- <file>` issued to undo a probe discards
+every uncommitted edit that file held, whoever made it. Prose there
+would be a new always-on line rather than a converted one, so such a
+hazard gets a hook directly or nothing.
 
 ## Requirements
 
@@ -52,7 +54,9 @@ converted one, so such a hazard gets a hook directly or nothing.
   `--no-verify` matchers over-match most easily: `git checkout <file>`,
   `git branch` with no argument, and `gh pr create` bodies that
   legitimately contain newlines are all real traffic a naive matcher
-  would catch.
+  would catch. `git checkout <file>` must pass the branch guard; the
+  worktree-discard guard asks on it, since it overwrites that file's
+  uncommitted edits.
 - **Mechanical, not a shell parser.** Detection is regex/word-boundary
   matching over the command string (with quoted and heredoc regions
   stripped first, so prose mentioning a trigger word doesn't fire the
@@ -98,8 +102,8 @@ converted one, so such a hazard gets a hook directly or nothing.
   `.version` reflects the *last released* version; a `PreToolUse` hook
   from the vendored toolkit (`plugin-dev/version-guard.sh`) refuses
   direct edits to it, so only `just release` can bump it.
-- **`hooks/hooks.json`** — wires ten rules to thirteen scripts (branch/worktree
-  creation needs two scripts to cover both its `Bash` and
+- **`hooks/hooks.json`** — wires eleven rules to fourteen scripts
+  (branch/worktree creation needs two scripts to cover both its `Bash` and
   `EnterWorktree` matchers, the sandbox rule two — a
   `SessionStart` check and a `Bash` deny — and the piped-gate rule two,
   a `PreToolUse` deny and a `PostToolUse` warning):
@@ -115,6 +119,7 @@ converted one, so such a hazard gets a hook directly or nothing.
   | No volatile git state in memory files | `Write\|Edit` on `*.md` under a `memory` segment at a git tree root (`.git`-adjacent), `` `[0-9a-f]{5,40}` `` minus digits/hex-words/frontmatter/UUIDs/`hygiene-ok` lines | deny | `deny-volatile-memory-state.sh` |
   | GitHub bodies are not hard-wrapped | `Bash` on `gh pr\|issue create\|comment\|edit\|review` with `--body-file` | deny | `deny-hardwrapped-gh-body.sh` |
   | No whole-tree `git add` | `Bash` (`git add -A/--all/./:/`, `*`) | deny | `deny-git-add-all.sh` |
+  | Uncommitted work is not discarded by git | `Bash`, `git` as the command word: `reset --hard\|--merge`, `clean -f` without `-n`, `stash drop\|clear`, a forced `checkout`/`switch` (forced create included), a `checkout`/`restore` of a bulk pathspec (`.`, `..`, `:/`, other `:` magic, a glob, a trailing `/`, a directory) → deny; a `checkout`/`restore` of named files → ask | deny / **ask** | `deny-worktree-discarding-git.sh` |
   | Never run sandboxed `git`/`find`/`ls`/`claude -p`/`just release` | `SessionStart`, checks `~/.claude/settings.json` `sandbox.excludedCommands` ⊇ `git *`, `find *`, `ls *`, `claude *`, `just release *` (each also accepted as legacy `cmd:*`) | **warn** (`additionalContext` + `systemMessage`) | `warn-sandbox-excluded-commands.sh` |
   | ″ | `Bash` with `dangerouslyDisableSandbox` unset, any subcommand matching a `sandbox.excludedCommands` entry, unless every subcommand matches and the call has none of the shapes the harness keeps sandboxed; quoted text and heredoc bodies skipped, a call with `$( … )`, backticks, `<( … )` or `>( … )` not matched | deny | `deny-sandboxed-excluded-command.sh` |
   | A gate's exit status must not be the pipe's | `Bash`, a runner (`just` precommit/prerelease/release/lint/test recipe, `pytest`, `bats`, `run-bats.sh`) at a pipeline start with a pipe after it, run in the background or followed by `&&`/`\|\|`; `pipefail`/`PIPESTATUS` and probe flags pass | deny | `deny-piped-gate-status.sh` |
@@ -144,11 +149,12 @@ converted one, so such a hazard gets a hook directly or nothing.
 
 ### Ask, not deny, for branch/worktree creation and off-project edits
 
-Two of the eight `PreToolUse` rules cannot be `deny`: merging onto a base my human
-partner named is executing their instruction, not originating a branch
-switch, and filing a brief in another repo is legitimate — only *edits*
-there are forbidden. A hook that denies either blocks legitimate work,
-so both use the `ask` permission decision instead.
+The branch/worktree and off-project rules cannot be `deny`: merging onto
+a base my human partner named is executing their instruction, not
+originating a branch switch, and filing a brief in another repo is
+legitimate — only *edits* there are forbidden. A hook that denies
+either blocks legitimate work, so both use the `ask` permission
+decision instead.
 
 ### Off-project note drops pass without asking
 
@@ -234,6 +240,83 @@ shipped covered because quoting them is how they are normally written,
 but `git add '.'` and `git add './'` are the same command as their bare
 forms and passed the guard until the list was completed. Any spelling
 the rule denies bare, it denies quoted.
+
+### Deny bulk discards, ask per-file restores
+
+`deny-worktree-discarding-git.sh` guards a workflow hazard, not a
+converted prose rule: git can discard uncommitted edits with no record
+to recover them from. The bulk forms in the matcher table are denied.
+`reset --merge` is among them because it reverts a staged-only change
+and the transcript corpus held no use of it; a glob or `:`-magic
+pathspec, because it is often narrow but never names its files, and
+the redirect is to name them. A restore of named files asks instead:
+it is often right, and only the edits' owner knows. A clean path is not
+exempt, since a restore runs because the path is dirty.
+
+**What the ask does**, read from the CC 2.1.292 bundle, with the
+deciding code present in 2.1.284 and 2.1.290 under renamed
+identifiers. A hook `ask` reaches `canUseTool` as a forced decision, so
+the permission engine and the auto-mode classifier never see it; the
+main session, a foreground subagent and a background subagent under an
+interactive parent get the dialog. Where nobody can answer it becomes
+a deny. Probed on 2.1.292 with a scratch `--settings` hook asking on
+`git checkout -- f.txt` under `claude -p`: the reason came back as an
+`is_error` `tool_result`, `additionalContext` arrived, and the file was
+untouched. When a deny rule, an ask rule or a safety check also
+applies — `dangerouslyDisableSandbox` is the common case — the call
+takes the engine's floor path instead, where a classifier allow
+re-surfaces as the ask and a context that avoids prompts denies. No
+traced path turns an `ask` into an allow; its cost is prompt volume,
+up to 436 per-file restores in the corpus. The reason is the human's
+dialog text and, headless, the agent's `tool_result`, so it names the
+paths and holds no imperative; the ask carries no `systemMessage`,
+since the dialog is the human's channel.
+
+**Branch or path.** `git checkout <x>` without `--` is ambiguous, and
+`git_checkout_parse` (`scripts/lib/git-command.sh`) is the one rule
+that decides it. A word is a path candidate when it exists under the
+effective directory or has a `:`-magic or glob shape, which is what
+lets `git checkout :/` deny. A candidate is a path only if it does not
+resolve as a commit, because the rev wins: probed on git 2.47.3, branch
+`foo` plus a dirty file `foo` switched branch carrying the edit, and
+tag `t` plus file `t` detached HEAD. The test is `git rev-parse
+--verify --quiet`, run only for a candidate, so `git checkout main`
+spawns nothing. It is the only `git` subprocess in these hooks, kept
+because the subprocess-free test, "exists on disk means path",
+false-denies `git checkout docs` where branch `docs` and directory
+`docs/` both exist. Force beats create: probed on git 2.47.3,
+`checkout -f -b x`, `checkout -B x -f` and `switch -f -c x <start>`
+each discarded a dirty edit, so they are denied; a bare `switch -f -c
+x` keeps it and is denied anyway, an accepted over-deny. The parser
+also tells `git checkout main` from `git checkout <file>`, which makes
+"never switch unprompted" detectable; no hook asks on a plain switch,
+a separate call with prompt volume to weigh.
+
+**Effective directory.** Path tests run where the command will: the
+payload `cwd`, moved by each `cd <literal>` in segment order and by
+git's `-C` operands. Any other `cd`, `pushd` or `popd`, an expanded
+`-C` operand, `--git-dir`/`--work-tree`, or a chdir by `env -C` or
+`sudo -D` makes it unknown. Then a bare one-operand checkout counts as
+a switch and a pathspec is bulk by its shape alone: the hook
+under-denies rather than guesses.
+
+**Words, not text.** The command is split quote-aware by `shell_split`
+(`scripts/lib/shell-text.sh`), one POSIX awk program, so a quoted
+pathspec is a word, a redirection is dropped with its target, and a
+100 KB command stays fast — appends are buffered, so the split is
+linear in practice. `git` must be the command word, reached past
+assignments, the shell's reserved words and the wrappers `git_walk`
+lists (`sudo`, `env`, `timeout <dur>` and kin), so `echo git checkout
+-- .` passes, here and in `deny-git-add-all.sh`, which shares the walk.
+
+Residuals: subshell scoping of `cd` is not modelled; `$VAR`, `~`, globs
+and braces are not expanded; discards through `$( … )`, backticks,
+`bash -c`, `eval` and `xargs` are opaque; a word holding `\036` or
+`\037`, `shell_split`'s separators, mis-splits. Out of scope: `-c
+clean.requireForce=false clean`, `git rm -f` on a modified file, `git
+worktree remove --force`, and non-git overwrites (`cp`, `sed -i`,
+`rm`). Any `shared-claude.md` line for this hazard is proposed to the
+tier's own repo, never edited from here.
 
 ### Abbreviated shas, with a closed exclusion list
 
@@ -515,13 +598,21 @@ Verdicts the tests encode:
 
 ### Deny output is stdout + exit 0, never stderr + exit 2
 
-All eleven scripts emit their `hookSpecificOutput` JSON on stdout with
+All fourteen scripts emit their `hookSpecificOutput` JSON on stdout with
 exit 0, including deny decisions. `exit 2` is a valid deny mechanism but
 carries no `ask` capability and no `systemMessage` channel for a
 human-facing summary distinct from the agent-facing reason — using the
 JSON channel uniformly keeps every script's shape identical regardless
 of its decision, and matches
 [[hook-output-channels]] in the shared memory tier.
+
+One non-zero exit is a failure, not a decision.
+`deny-worktree-discarding-git.sh` captures `shell_split`'s output under
+`set -e`, so an awk that fails ends the hook with awk's status. A syntax
+error exits 2, which blocks the call with awk's stderr as the reason:
+a broken awk refuses the commands past the hook's prefilter instead of
+passing them all. Any other non-zero status is a non-blocking error,
+and the call proceeds.
 
 ### A deny splits three ways by audience
 
@@ -579,6 +670,8 @@ does this; the failure mode is silent, since a dropped
   that same test states the invariant macOS depends on — both sides of
   the comparison resolved, so `/tmp` matching `/private/tmp` — but it
   passes on Linux either way, so it documents rather than proves.
+  `shell_split`'s awk program has run only under mawk; it was reviewed
+  against BSD awk, not run there, and its speed there is unmeasured.
 - **No pairing check yet.** A repo that mounts the `ddaanet` memory tier
   without enabling this plugin is unguarded with no visible symptom.
   The check belongs in gitlore's `SessionStart`, not here, and doesn't

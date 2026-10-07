@@ -37,6 +37,11 @@
           },
           {
             "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/deny-worktree-discarding-git.sh\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/deny-hardwrapped-gh-body.sh\"",
             "timeout": 5
           },

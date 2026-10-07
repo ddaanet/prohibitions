@@ -68,7 +68,12 @@ for cmd in \
   'git add . && git commit -m "wip"' \
   'git add .; git commit -m "wip"' \
   'git status && git add -A && git commit -m "wip"' \
-  'git add -- .'
+  'git add -- .' \
+  '{ git add -A; }' \
+  'if true; then git add -A; fi' \
+  'for f in a; do git add .; done' \
+  'sudo git add -A' \
+  'env FOO=1 git add -A'
 do
   out="$(run "$cmd")"
   assert_denied "$cmd" "$out"
@@ -102,6 +107,7 @@ for cmd in \
   "git add 'a'.'b'" \
   'git add "a"."b"' \
   'echo add . | cat' \
+  'echo git add -A' \
   'git log -- .' \
   'git diff .' \
   'ls -A .' \
