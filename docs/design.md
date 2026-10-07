@@ -121,8 +121,8 @@ converted one, so such a hazard gets a hook directly or nothing.
   | ″ | `PostToolUse` on `Bash`, the same runner piped, foreground, output carrying a failure line | **warn** (`additionalContext` + `systemMessage`) | `warn-piped-gate-failure.sh` |
 
 - **`scripts/*.sh` + `tests/*-test.sh`** — one script per hook, one
-  end-to-end test per script; `scripts/lib/` holds detection shared by
-  two hooks of one rule, sourced rather than run, driven by synthetic hook JSON payloads
+  end-to-end test per script; `scripts/lib/` holds code shared between
+  hooks, sourced rather than run, driven by synthetic hook JSON payloads
   through `jq`. `just precommit` runs `shellcheck`, `bash -n`,
   and every `tests/*-test.sh`. One test is not paired with a hook:
   `tests/portability-test.sh` is a static scan of every script and
@@ -454,8 +454,9 @@ check`, `make test`), runners inside `bash -c` or `$( … )`, and masking
 without a pipe (`just precommit > log; tail log`) go unmatched; the
 `PostToolUse` half recognises only the listed output formats. The
 detector lives in `scripts/lib/piped-gate.sh`, the first shared
-library here; the other scripts' `strip_heredocs` copies stay where
-they are until a further hook needs the same walk.
+library here. `strip_heredocs` lives in `scripts/lib/shell-text.sh`,
+shared by every script that strips heredocs, and the git global-option
+walk in `scripts/lib/git-command.sh`.
 
 ### Tree-root anchoring by `.git` adjacency
 

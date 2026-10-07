@@ -21,28 +21,8 @@
 # fully shell-parse the command.
 set -euo pipefail
 
-strip_heredocs() {
-  local heredoc_re="<<(-)?[[:space:]]*[\"']?([A-Za-z_][A-Za-z0-9_]*)"
-  local in_here=0 strip_tabs=0 delim="" line cmp out=""
-  while IFS= read -r line || [ -n "$line" ]; do
-    if [ "$in_here" -eq 1 ]; then
-      cmp="$line"
-      if [ "$strip_tabs" -eq 1 ]; then
-        while [ "${cmp:0:1}" = $'\t' ]; do cmp="${cmp:1}"; done
-      fi
-      [ "$cmp" = "$delim" ] && in_here=0
-      continue
-    fi
-    if [[ "$line" =~ $heredoc_re ]]; then
-      strip_tabs=0
-      [ "${BASH_REMATCH[1]}" = "-" ] && strip_tabs=1
-      delim="${BASH_REMATCH[2]}"
-      in_here=1
-    fi
-    out+="$line"$'\n'
-  done <<<"$1"
-  printf '%s' "$out"
-}
+# shellcheck source-path=SCRIPTDIR source=lib/shell-text.sh
+. "$(dirname "$0")/lib/shell-text.sh"
 
 input="$(cat)"
 tool_name="$(jq -r '.tool_name // ""' <<<"$input")"

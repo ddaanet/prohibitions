@@ -28,9 +28,12 @@
 # splits a path into fragments, and a fragment can only fail to name a
 # runner. Runners inside `bash -c "…"` or behind `$( … )` are invisible.
 
+# shellcheck source-path=SCRIPTDIR source=shell-text.sh
+. "${BASH_SOURCE[0]%/*}/shell-text.sh"
+
 piped_gate_scan() {
   local text
-  text="$(piped_gate_strip_heredocs "$1")"
+  text="$(strip_heredocs "$1")"
   case "$text" in *pipefail* | *PIPESTATUS*) return 0 ;; esac
   text="$(sed -E "s/'[^']*'//g; s/\"[^\"]*\"//g" <<<"$text")"
 
@@ -131,27 +134,4 @@ piped_gate_runner() {
           piped_gate_found="just $recipe" ;;
       esac ;;
   esac
-}
-
-piped_gate_strip_heredocs() {
-  local heredoc_re="<<(-)?[[:space:]]*[\"']?([A-Za-z_][A-Za-z0-9_]*)"
-  local in_here=0 strip_tabs=0 delim="" line cmp out=""
-  while IFS= read -r line || [ -n "$line" ]; do
-    if [ "$in_here" -eq 1 ]; then
-      cmp="$line"
-      if [ "$strip_tabs" -eq 1 ]; then
-        while [ "${cmp:0:1}" = $'\t' ]; do cmp="${cmp:1}"; done
-      fi
-      [ "$cmp" = "$delim" ] && in_here=0
-      continue
-    fi
-    if [[ "$line" =~ $heredoc_re ]]; then
-      strip_tabs=0
-      [ "${BASH_REMATCH[1]}" = "-" ] && strip_tabs=1
-      delim="${BASH_REMATCH[2]}"
-      in_here=1
-    fi
-    out+="$line"$'\n'
-  done <<<"$1"
-  printf '%s' "$out"
 }

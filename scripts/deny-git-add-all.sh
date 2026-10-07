@@ -22,9 +22,10 @@
 # `'./'`, `':/'` stage the whole tree exactly as their bare spellings do.
 # The command is then split into segments on `;`, `|` and `&` (covering
 # `&&`, `||`, `|`, `;`, background `&`) plus newlines, and each segment
-# is whitespace-tokenized and walked: find `git`, skip its global
-# options, require the subcommand to be exactly `add` or `stage` (git's
-# documented synonym), then look for a whole-tree token among the rest.
+# is whitespace-tokenized and walked by `git_walk`
+# (scripts/lib/git-command.sh: find `git`, skip its global options); the
+# subcommand it locates must be exactly `add` or `stage` (git's documented
+# synonym), then the rest is searched for a whole-tree token.
 #
 # Residual bound of whitespace tokenization: this is shell text with
 # quotes already removed, so splitting on whitespace is what the shell
@@ -38,28 +39,8 @@
 # would need the variable's value, which a PreToolUse hook does not have.
 set -euo pipefail
 
-strip_heredocs() {
-  local heredoc_re="<<(-)?[[:space:]]*[\"']?([A-Za-z_][A-Za-z0-9_]*)"
-  local in_here=0 strip_tabs=0 delim="" line cmp out=""
-  while IFS= read -r line || [ -n "$line" ]; do
-    if [ "$in_here" -eq 1 ]; then
-      cmp="$line"
-      if [ "$strip_tabs" -eq 1 ]; then
-        while [ "${cmp:0:1}" = $'\t' ]; do cmp="${cmp:1}"; done
-      fi
-      [ "$cmp" = "$delim" ] && in_here=0
-      continue
-    fi
-    if [[ "$line" =~ $heredoc_re ]]; then
-      strip_tabs=0
-      [ "${BASH_REMATCH[1]}" = "-" ] && strip_tabs=1
-      delim="${BASH_REMATCH[2]}"
-      in_here=1
-    fi
-    out+="$line"$'\n'
-  done <<<"$1"
-  printf '%s' "$out"
-}
+# shellcheck source-path=SCRIPTDIR source=lib/git-command.sh
+. "$(dirname "$0")/lib/git-command.sh"
 
 input="$(cat)"
 tool_name="$(jq -r '.tool_name // ""' <<<"$input")"
@@ -85,24 +66,14 @@ while IFS= read -r segment; do
   read -r -a tokens <<<"$segment" || true
   count=${#tokens[@]}
 
-  # The command word. Anything before it (env assignments, `sudo`, a
-  # redirection) is skipped; a segment with no `git` is not an add.
-  i=0
-  while (( i < count )) && [ "${tokens[i]}" != "git" ]; do i=$((i + 1)); done
-  (( i < count )) || continue
-  i=$((i + 1))
-
-  # git's own global options sit between `git` and the subcommand. Six
-  # of them take a separate operand and must consume the next token too;
-  # their `--opt=value` spellings are a single token and need no skip.
-  while (( i < count )); do
-    case "${tokens[i]}" in
-      -C | -c | --git-dir | --work-tree | --namespace | --config-env) i=$((i + 2)) ;;
-      -*) i=$((i + 1)) ;;
-      *) break ;;
-    esac
-  done
-  (( i < count )) || continue
+  # git_walk finds the first `git` and skips its global options; a
+  # segment with no `git` or no subcommand is not an add. Every token
+  # here is literal text, so each carries the `L` flag the walk expects.
+  flagged=()
+  for tok in ${tokens[@]+"${tokens[@]}"}; do flagged+=("L$tok"); done
+  git_walk ${flagged[@]+"${flagged[@]}"}
+  (( git_sub_index >= 0 )) || continue
+  i=$git_sub_index
 
   case "${tokens[i]}" in
     add | stage) i=$((i + 1)) ;;
