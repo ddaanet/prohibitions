@@ -29,9 +29,10 @@
 #
 # Residuals: subshell scoping is not modelled for `cd`; `$VAR`, `~`, globs
 # and braces are not expanded, so an unknown directory under-denies; discards
-# through `$( ... )`, backticks, `bash -c`, `eval` and `xargs` are opaque;
-# a word holding \036 or \037 mis-splits. Out of scope: `-c
-# clean.requireForce=false clean`, `git rm -f <modified>`, `git worktree
+# through `$( ... )`, backticks, `bash -c` and `eval` are opaque, as are the
+# arguments `xargs` feeds a git command (a walked wrapper only when git is
+# its direct command); a word holding \036 or \037 mis-splits. Out of scope:
+# `-c clean.requireForce=false clean`, `git rm -f <modified>`, `git worktree
 # remove --force`, and non-git overwrites (`cp`, `sed -i`, `rm`).
 # The recovery texts quote command text in backticks on purpose.
 # shellcheck disable=SC2016
@@ -48,6 +49,9 @@ main() {
   command="$(jq -r '.tool_input.command // ""' <<<"$input")"
   cwd="$(jq -r '.cwd // ""' <<<"$input")"
   [ -n "$cwd" ] || cwd="$PWD"
+  # Read by gc_in_trusted_root in the lib.
+  # shellcheck disable=SC2034
+  gc_cwd="$cwd"
 
   stripped="$(strip_heredocs "$command")"
   [[ "$stripped" == *git* ]] || exit 0

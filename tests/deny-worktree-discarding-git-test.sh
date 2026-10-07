@@ -14,8 +14,10 @@ hook="$repo_root/scripts/deny-worktree-discarding-git.sh"
 
 # Exported, so the hook's own `git rev-parse` sees the fixture config too. A
 # git-hook environment would point the fixture's git (and the hook's) at the
-# outer repository, so it is cleared.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_PREFIX
+# outer repository, so it is cleared. An inherited CLAUDE_PROJECT_DIR would
+# make the fixture lie outside the hook's trusted root, so `run` leaves the
+# root to the payload cwd and `run_trusted` sets it per call.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_PREFIX CLAUDE_PROJECT_DIR
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/wdg-fixture.XXXXXX")"
@@ -40,6 +42,10 @@ build_fixture() {
   g tag v1
 }
 build_fixture
+
+# Spelled in two pieces so tests/portability-test.sh does not flag the
+# command word: it appears here only as hook input.
+tmo=time'out'
 
 failures=0
 fail() {
@@ -145,7 +151,22 @@ for cmd in \
   'git switch -f -c x main' \
   'git restore -sHEAD .' \
   'git clean -fd -enode' \
-  'git checkout -- "$d"/'
+  'git checkout -- "$d"/' \
+  '/usr/bin/git reset --hard' \
+  '\git reset --hard' \
+  'command -p git reset --hard' \
+  'env -i git reset --hard' \
+  'env -u X git reset --hard' \
+  "$tmo -s KILL 5 git reset --hard" \
+  "$tmo --signal=KILL 5 git reset --hard" \
+  'sudo -u bob git reset --hard' \
+  'sudo -u bob /usr/bin/git reset --hard' \
+  'nice -n 5 git reset --hard' \
+  'time -p git reset --hard' \
+  'exec git reset --hard' \
+  'nohup git reset --hard' \
+  'xargs git reset --hard' \
+  'GIT_EXEC=/usr/bin/git git reset --hard'
 do
   assert_denied "$cmd" "$(run "$cmd")"
 done
@@ -274,6 +295,79 @@ EOF
 CMD
 )"
 assert_passed 'heredoc commit message naming refused forms' "$(run "$heredoc_cmd")"
+
+# Trusted root (security review): the commit test runs `git -C <effdir>
+# rev-parse`, and effdir comes from the not-yet-approved command, so it runs
+# only inside CLAUDE_PROJECT_DIR (else the payload cwd). Outside it no
+# subprocess runs and an existing word is taken as a path: ask, never a silent
+# pass. A logging git shim on PATH records every call. Each outside repo holds
+# a branch and a file both named `both`, so a rev-parse there would turn the
+# ask into a pass; `outside`'s path holds a space, and `sibling` is the
+# fixture's path plus a suffix, which only a path-boundary test keeps out.
+real_git="$(command -v git)"
+shimdir="$(mktemp -d "${TMPDIR:-/tmp}/wdg-shim.XXXXXX")"
+outside="$(mktemp -d "${TMPDIR:-/tmp}/wdg outside.XXXXXX")"
+sibling="${fixture}x"
+trap 'rm -rf "$fixture" "$shimdir" "$outside" "$sibling"' EXIT
+gitlog="$shimdir/calls.log"
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"%s"\nexec "%s" "$@"\n' "$gitlog" "$real_git" >"$shimdir/git"
+chmod +x "$shimdir/git"
+build_both_repo() {  # $1 = directory
+  mkdir -p "$1"
+  git -C "$1" init -q -b main
+  printf 'both\n' >"$1/both"
+  git -C "$1" add both
+  git -C "$1" -c user.name=tester -c user.email=tester@example.com commit -q -m first
+  git -C "$1" branch both
+}
+build_both_repo "$outside"
+build_both_repo "$sibling"
+ln -s "$fixture" "$shimdir/link"
+
+# $1 = command, $2 = payload cwd, $3 = CLAUDE_PROJECT_DIR (both default to the
+# fixture); truncates the shim log first.
+run_trusted() {
+  : >"$gitlog"
+  jq -nc --arg c "$1" --arg d "${2:-$fixture}" \
+    '{tool_name: "Bash", tool_input: {command: $c}, cwd: $d}' \
+    | CLAUDE_PROJECT_DIR="${3:-$fixture}" PATH="$shimdir:$PATH" bash "$hook" 2>&1 || true
+}
+
+assert_no_rev_parse() {  # $1 = label
+  if grep -q 'rev-parse' "$gitlog"; then
+    fail "[$1] ran rev-parse outside the trusted root: $(tr '\n' '|' <"$gitlog")"
+  fi
+}
+
+cmd="git -C \"$outside\" checkout both"
+out="$(run_trusted "$cmd")"
+assert_asked "outside root: $cmd" "$out" both
+assert_no_rev_parse "outside root: $cmd"
+cmd="cd \"$outside\" && git checkout both"
+out="$(run_trusted "$cmd")"
+assert_asked "outside root: $cmd" "$out" both
+assert_no_rev_parse "outside root: $cmd"
+cmd="git -C \"$sibling\" checkout both"
+out="$(run_trusted "$cmd")"
+assert_asked "prefix sibling of the root: $cmd" "$out" both
+assert_no_rev_parse "prefix sibling of the root: $cmd"
+# CLAUDE_PROJECT_DIR wins over the payload cwd: a cwd outside it is outside.
+cmd='git checkout both'
+out="$(run_trusted "$cmd" "$outside")"
+assert_asked "payload cwd outside CLAUDE_PROJECT_DIR: $cmd" "$out" both
+assert_no_rev_parse "payload cwd outside CLAUDE_PROJECT_DIR: $cmd"
+# Inside the root the rev still wins over the same-named file: a pass, and the
+# commit test really ran. The second run names the root through a symlink, so
+# only a physical-path comparison puts the fixture inside it.
+cmd='git checkout both'
+for root in "$fixture" "$shimdir/link"; do
+  out="$(run_trusted "$cmd" "$fixture" "$root")"
+  assert_passed "inside root $root: $cmd" "$out"
+  grep -q 'rev-parse' "$gitlog" || fail "[inside root $root: $cmd] expected a rev-parse call, log: $(tr '\n' '|' <"$gitlog")"
+  # Even inside the root the commit test runs with fsmonitor and hooks off.
+  grep 'rev-parse' "$gitlog" | grep 'core.fsmonitor=false' | grep -q 'core.hooksPath=/dev/null' \
+    || fail "[inside root $root: $cmd] rev-parse ran without fsmonitor and hooks disabled: $(tr '\n' '|' <"$gitlog")"
+done
 
 # Every other tool call passes through silent. The payload carries a command a
 # Bash call would be denied for, so the pass is the tool_name gate's doing.

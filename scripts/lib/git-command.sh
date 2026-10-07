@@ -9,11 +9,16 @@
 # `git` must be the command word: the first word after `VAR=value` words,
 # the reserved words `!` `{` `if` `then` `else` `elif` `do` `while` `until`,
 # and the wrappers `env`, `time`, `nice`, `command`, `exec`, `nohup`,
-# `sudo`, `doas` and `timeout <dur>` (with their own options), so `echo git
-# add -A` is not a git command. It then skips git's global options: `-C`,
-# `-c`, `--git-dir`, `--work-tree`, `--namespace` and `--config-env`
-# consume the next word, any other `-*` word is skipped, and the
-# `--opt=value` spellings are single words. It sets these globals:
+# `sudo`, `doas`, `xargs`, `setsid`, `stdbuf`, `ionice` and `timeout <dur>`
+# (with their own options, per the arity table in
+# `wrapper_option_takes_value`), so `echo git add -A` is not a git command.
+# A command word counts as `git` when it is `git` or ends in `/git`
+# (`/usr/bin/git`, `./git`); `\git` is the callers' to unescape. Other
+# wrappers (`busybox`, `watch`, `chronic`, `eval`, `bash -c`) are opaque.
+# It then skips git's global options: `-C`, `-c`, `--git-dir`,
+# `--work-tree`, `--namespace` and `--config-env` consume the next word,
+# any other `-*` word is skipped, and the `--opt=value` spellings are
+# single words. It sets these globals:
 #   git_sub_index    index, in the argument list, of the subcommand word;
 #                    -1 when there is no `git` or no subcommand
 #   git_c_dirs       array of the `-C` operands in order, flag stripped
@@ -44,6 +49,15 @@
 # `switch`, and an X-flagged operand has no known name to look up, so only
 # its shape makes it a candidate. The commit test runs only for a candidate,
 # so `git checkout main` spawns nothing.
+# The commit test runs `git -C <effdir>` only when <effdir> is inside the
+# trusted root (`gc_in_trusted_root`): a PreToolUse hook would otherwise run
+# git, before approval, in a repository the unapproved command names.
+# git 2.47.3's `rev-parse --verify` was probed not to run `core.fsmonitor` or
+# hooks, so this is defence in depth against config-driven execution in other
+# git versions. Outside the root there is no subprocess and a candidate is a
+# path (fail safe: the hook asks or denies). Residuals: an outside branch
+# named like an existing file asks; a repository nested under the root is
+# inside it.
 # `switch`: `-f`, `--force`, `--discard-changes` give `discard_switch`;
 # otherwise `-c`, `-C`, `--orphan` give `create`. `restore`: the worktree
 # is touched iff `-W`/`--worktree` appears or `-S`/`--staged` does not;
@@ -69,14 +83,15 @@ git_walk() {
 
   while (( i < count )); do
     w="${words[i]:1}"
-    [ "$w" = "git" ] && break
+    # Assignments first: `GIT_EXEC=/usr/bin/git` ends in `/git` too.
     if [[ "$w" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
       i=$((i + 1))
       continue
     fi
+    [ "$w" = "git" ] || [[ "$w" == */git ]] && break
     case "$w" in
       '!' | '{' | if | then | else | elif | do | while | until) i=$((i + 1)) ;;
-      env | time | command | nice | exec | nohup | sudo | doas | timeout)
+      env | time | command | nice | exec | nohup | sudo | doas | xargs | setsid | stdbuf | ionice | timeout)
         i=$((i + 1))
         while (( i < count )); do
           case "${words[i]:1}" in
@@ -132,6 +147,13 @@ wrapper_option_takes_value() {
     exec) case "$2" in -a) return 0 ;; esac ;;
     sudo) case "$2" in -u | -g | -C | -D | -p | -r | -t | -T | -U | -R) return 0 ;; esac ;;
     doas) case "$2" in -u | -C) return 0 ;; esac ;;
+    xargs)
+      case "$2" in
+        -I | -n | -L | -P | -s | -d | -E | -a | -J | -R | -S) return 0 ;;
+        --arg-file | --delimiter | --eof | --max-args | --max-chars | --max-lines | --max-procs | --process-slot-var) return 0 ;;
+      esac ;;
+    stdbuf) case "$2" in -i | -o | -e | --input | --output | --error) return 0 ;; esac ;;
+    ionice) case "$2" in -c | -n | -p | -P | -u | --class | --classdata | --pid | --pgid | --uid) return 0 ;; esac ;;
   esac
   return 1
 }
@@ -256,8 +278,32 @@ gc_is_path() {
     esac
   fi
   (( candidate )) || return 1
+  gc_in_trusted_root "$effdir" || return 0
   # The failure is the mechanism: a word that is not a commit is a path.
   # stderr is dropped because --quiet does not silence the `fatal: not a git
   # repository` an effdir outside any repo prints; that case is "not a commit".
-  ! git -C "$effdir" rev-parse --verify --quiet "$w^{commit}" >/dev/null 2>&1
+  # The system config, fsmonitor and hooks are switched off as defence in
+  # depth: the command naming this directory is not approved yet.
+  ! GIT_CONFIG_NOSYSTEM=1 git -c core.fsmonitor=false \
+    -c core.hooksPath=/dev/null -C "$effdir" \
+    rev-parse --verify --quiet "$w^{commit}" >/dev/null 2>&1
+}
+
+# gc_in_trusted_root <dir>: <dir> is the trusted root or under it, compared
+# as physical paths with a path-boundary test. The root is CLAUDE_PROJECT_DIR
+# when set and non-empty, else gc_cwd (the payload cwd, set by the hook
+# before parsing), else the process's own directory. A directory that does
+# not resolve is outside.
+gc_in_trusted_root() {
+  local dir root
+  root="${CLAUDE_PROJECT_DIR:-${gc_cwd:-$PWD}}"
+  # A directory that does not resolve counts as outside; cd's complaint
+  # about it is that expected outcome, so it is dropped.
+  dir="$(cd -P -- "$1" 2>/dev/null && pwd -P)" || return 1
+  root="$(cd -P -- "$root" 2>/dev/null && pwd -P)" || return 1
+  [ "$dir" = "$root" ] && return 0
+  case "$dir" in
+    "${root%/}"/*) return 0 ;;
+  esac
+  return 1
 }

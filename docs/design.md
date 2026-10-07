@@ -304,14 +304,37 @@ under-denies rather than guesses.
 (`scripts/lib/shell-text.sh`), one POSIX awk program, so a quoted
 pathspec is a word, a redirection is dropped with its target, and a
 100 KB command stays fast — appends are buffered, so the split is
-linear in practice. `git` must be the command word, reached past
-assignments, the shell's reserved words and the wrappers `git_walk`
-lists (`sudo`, `env`, `timeout <dur>` and kin), so `echo git checkout
--- .` passes, here and in `deny-git-add-all.sh`, which shares the walk.
+linear in practice. `git` must be the command word, by basename
+(`/usr/bin/git` counts), reached past assignments, the shell's reserved
+words and the wrappers `git_walk` lists (`sudo`, `env`, `xargs`,
+`timeout <dur>` and kin, each with its own option arity), so `echo git
+checkout -- .` passes, here and in `deny-git-add-all.sh`, which shares
+the walk. The earlier add hook took `git` anywhere in a segment; a
+security review diffed the two and the walk gained `xargs`, `setsid`,
+`stdbuf`, `ionice` and basename matching, so the only forms that
+denied before and pass now are `echo git add -A` (by design), a `git`
+behind an unlisted wrapper (`busybox`, `watch`, `chronic`, `eval`), and
+a leading redirection such as `2>/dev/null git add -A` until the add
+hook moves onto `shell_split`.
+
+**Trusted root for the commit test.** The `rev-parse` runs before the
+command is approved, in a directory the command names. It runs only
+when that directory is inside `CLAUDE_PROJECT_DIR` (else the payload
+`cwd`), compared as physical paths. Outside it no `git` is spawned and
+an existing or pathspec-shaped operand is taken as a path, so the hook
+asks or denies rather than passes. On git 2.47.3 `rev-parse --verify`
+was probed not to run `core.fsmonitor` or hooks from a hostile
+repository's config; the root check is defence in depth against other
+versions, and so is running it with `GIT_CONFIG_NOSYSTEM=1`, `-c
+core.fsmonitor=false` and `-c core.hooksPath=/dev/null`, inside the
+root too. Residuals: outside the root, a branch named like an existing
+file asks; the root is a directory, not a repository, so a repository
+nested under it, such as one cloned there, is inside.
 
 Residuals: subshell scoping of `cd` is not modelled; `$VAR`, `~`, globs
 and braces are not expanded; discards through `$( … )`, backticks,
-`bash -c`, `eval` and `xargs` are opaque; a word holding `\036` or
+`bash -c` and `eval` are opaque, as is anything `xargs` feeds a `git`
+command; a word holding `\036` or
 `\037`, `shell_split`'s separators, mis-splits. Out of scope: `-c
 clean.requireForce=false clean`, `git rm -f` on a modified file, `git
 worktree remove --force`, and non-git overwrites (`cp`, `sed -i`,

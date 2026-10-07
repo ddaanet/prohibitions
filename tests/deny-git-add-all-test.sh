@@ -8,6 +8,10 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 hook="$repo_root/scripts/deny-git-add-all.sh"
 
+# Spelled in two pieces so tests/portability-test.sh does not flag the
+# command word: it appears here only as hook input.
+tmo=time'out'
+
 failures=0
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
@@ -73,7 +77,30 @@ for cmd in \
   'if true; then git add -A; fi' \
   'for f in a; do git add .; done' \
   'sudo git add -A' \
-  'env FOO=1 git add -A'
+  'env FOO=1 git add -A' \
+  'sudo -u bob git add -A' \
+  'env -i git add -A' \
+  'env -u X git add -A' \
+  'nice -n 5 git add -A' \
+  'time -p git add -A' \
+  "$tmo 5 git add -A" \
+  "$tmo -s KILL 5 git add -A" \
+  "$tmo -k 2 5 git add -A" \
+  "$tmo --signal=KILL 5 git add -A" \
+  'command -p git add -A' \
+  'exec git add -A' \
+  'nohup git add -A' \
+  'FOO=1 BAR=2 git add -A' \
+  'cd x && git add -A' \
+  'true | git add -A' \
+  'xargs git add -A' \
+  'xargs -0 git add -A' \
+  'xargs -n1 git add -A' \
+  'xargs -J % git add -A' \
+  'GIT_EXEC=/usr/bin/git git add -A' \
+  '/usr/bin/git add -A' \
+  'sudo -u bob /usr/bin/git add -A' \
+  'env -i /usr/bin/git add .'
 do
   out="$(run "$cmd")"
   assert_denied "$cmd" "$out"
@@ -108,6 +135,12 @@ for cmd in \
   'git add "a"."b"' \
   'echo add . | cat' \
   'echo git add -A' \
+  'env echo git add -A' \
+  'xargs -n1 echo git add -A' \
+  'sudo -u git ls -A' \
+  'legit add -A' \
+  'gitk add -A' \
+  '/x/git-foo add -A' \
   'git log -- .' \
   'git diff .' \
   'ls -A .' \

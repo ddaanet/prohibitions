@@ -4,6 +4,38 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-10-08** — Three security-review findings against
+  `scripts/lib/git-command.sh`. *Guard bypass*: `/usr/bin/git reset
+  --hard` and `xargs git reset --hard` passed the discard hook; `git_walk`
+  now takes `git` by basename and treats `xargs` as a wrapper with its
+  own option arity. The wrapper-with-options forms the review named
+  (`sudo -u`, `env -i`, `timeout -s KILL 5`, `command -p`, `nice -n`,
+  `time -p`, `exec`, `nohup`) already denied and are pinned as cases.
+  *Control regression*: a differential of the add hook before the
+  command-word rule against the current one found `xargs` (and `stdbuf`,
+  `ionice`, `setsid`) forms now passing; those wrappers joined the walk,
+  leaving `echo git add -A` (by design) and unlisted wrappers (`busybox`,
+  `watch`, `chronic`, `eval`) as the only deny-to-pass deltas, while
+  `/usr/bin/git add -A` now denies where it never did. `2>/dev/null git
+  add -A` still passes until the add hook moves onto `shell_split`.
+  *Pre-approval execution*: `git_checkout_parse` ran `git rev-parse` in
+  a directory taken from the unapproved command; it now runs only inside
+  `CLAUDE_PROJECT_DIR` (else the payload `cwd`), and outside it an
+  existing operand is taken as a path without spawning `git`; the
+  `rev-parse` also runs with the system config, `core.fsmonitor` and
+  hooks switched off. A probe on git 2.47.3 found `rev-parse --verify`
+  runs neither `core.fsmonitor` nor hooks, so this is defence in depth.
+  The review of the fix caught the basename rule running ahead of the
+  assignment skip (`GIT_EXEC=/usr/bin/git git reset --hard` passed) and
+  the suite inheriting `CLAUDE_PROJECT_DIR`; both are fixed. Every new
+  deny and ask case failed against the unchanged lib first; the
+  outside-root, prefix-sibling (`<root>x`) and cwd-outside-root cases
+  assert through a logging `git` shim that no `rev-parse` ran. Each
+  property was then disabled in turn: global-option skipping, the
+  basename rule, `xargs` as a wrapper, the root check, its `/` boundary,
+  its physical-path comparison, `CLAUDE_PROJECT_DIR` precedence and the
+  `rev-parse` hardening each redded their cases.
+
 - **2026-10-07** — New `deny-worktree-discarding-git.sh` (`PreToolUse`
   on `Bash`), from an inbox brief and its triage. It denies git commands
   that discard uncommitted work in bulk — `reset --hard`/`--merge`,
