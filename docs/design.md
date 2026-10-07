@@ -59,10 +59,10 @@ hazard gets a hook directly or nothing.
   uncommitted edits.
 - **Mechanical, not a shell parser.** Detection is regex/word-boundary
   matching over the command string, or a word walk over `shell_split`'s
-  quote-aware split, with heredoc bodies stripped first so prose
-  mentioning a trigger word doesn't fire the guard — not a full shell
-  grammar: expansions are not performed, and `$( … )`, `bash -c` and
-  `eval` stay opaque.
+  quote-aware split. Heredoc bodies and quoted text are kept out of the
+  match, so prose mentioning a trigger word doesn't fire the guard. It
+  is not a full shell grammar: expansions are not performed, and
+  `$( … )`, `bash -c` and `eval` stay opaque.
 - **POSIX and bash 3.2, so the hooks run on macOS as well as Linux.**
   These scripts run wherever Claude Code runs, and the plugin is
   installed from a marketplace rather than built per machine, so a
@@ -120,7 +120,7 @@ hazard gets a hook directly or nothing.
   | ″ | `EnterWorktree` | **ask** | `ask-enter-worktree.sh` |
   | No volatile git state in memory files | `Write\|Edit` on `*.md` under a `memory` segment at a git tree root (`.git`-adjacent), `` `[0-9a-f]{5,40}` `` minus digits/hex-words/frontmatter/UUIDs/`hygiene-ok` lines | deny | `deny-volatile-memory-state.sh` |
   | GitHub bodies are not hard-wrapped | `Bash` on `gh pr\|issue create\|comment\|edit\|review` with `--body-file` | deny | `deny-hardwrapped-gh-body.sh` |
-  | No whole-tree `git add` | `Bash` (`git add -A/--all/./:/`, `*`) | deny | `deny-git-add-all.sh` |
+  | No whole-tree `git add` | `Bash`, `git` as the command word: `add`/`stage` with `-A` (alone or in a cluster), `--all`, `--no-ignore-removal`, `.`, `./`, `:/` or `*`, quoted or bare | deny | `deny-git-add-all.sh` |
   | Uncommitted work is not discarded by git | `Bash`, `git` as the command word: `reset --hard\|--merge`, `clean -f` without `-n`, `stash drop\|clear`, a forced `checkout`/`switch` (forced create included), a `checkout`/`restore` of a bulk pathspec (`.`, `..`, `:/`, other `:` magic, a glob, a trailing `/`, a directory) → deny; a `checkout`/`restore` of named files → ask | deny / **ask** | `deny-worktree-discarding-git.sh` |
   | Never run sandboxed `git`/`find`/`ls`/`claude -p`/`just release` | `SessionStart`, checks `~/.claude/settings.json` `sandbox.excludedCommands` ⊇ `git *`, `find *`, `ls *`, `claude *`, `just release *` (each also accepted as legacy `cmd:*`) | **warn** (`additionalContext` + `systemMessage`) | `warn-sandbox-excluded-commands.sh` |
   | ″ | `Bash` with `dangerouslyDisableSandbox` unset, any subcommand matching a `sandbox.excludedCommands` entry, unless every subcommand matches and the call has none of the shapes the harness keeps sandboxed; quoted text and heredoc bodies skipped, a call with `$( … )`, backticks, `<( … )` or `>( … )` not matched | deny | `deny-sandboxed-excluded-command.sh` |
@@ -192,18 +192,22 @@ body (`<<'EOF' … EOF`) isn't wrapped in quote characters at all, and
 this project's own commit-message convention uses heredocs for
 multi-line messages — so a real commit documenting these hooks (e.g.
 "Document that `--no-verify` is refused by the new hook")
-false-triggered the first scripts, including a hard **deny** blocking a
-safe commit. Every script that reads command text therefore strips
-heredoc bodies first (`strip_heredocs`, `scripts/lib/shell-text.sh`:
-the opener, its optional `-` tab-stripping mode, and its terminator
-line).
+false-triggered `deny-no-verify.sh` and `ask-branch-worktree-bash.sh`,
+including a hard **deny** blocking a safe commit. Every script that
+reads command text, except `deny-hardwrapped-gh-body.sh`, therefore
+strips heredoc bodies first (`strip_heredocs`,
+`scripts/lib/shell-text.sh`: the opener, its optional `-` tab-stripping
+mode, and its terminator line).
 
-What follows differs by script. `deny-no-verify.sh` and
-`deny-git-add-all.sh` delete `'...'`/`"..."` spans and match what is
-left. `deny-worktree-discarding-git.sh` and `ask-branch-worktree-bash.sh`
-split the text quote-aware with `shell_split` instead and walk the
-words, so a quoted argument stays an argument while prose inside a `-m`
-message is one word that is never a command word.
+What follows differs by script. `deny-no-verify.sh` and the piped-gate
+detector (`scripts/lib/piped-gate.sh`) delete `'...'`/`"..."` spans and
+match what is left; `deny-sandboxed-excluded-command.sh` drops quoted
+text in its own scan. The three git-walking hooks —
+`deny-git-add-all.sh`, `deny-worktree-discarding-git.sh` and
+`ask-branch-worktree-bash.sh` — split the text quote-aware with
+`shell_split` instead and walk the words, so a quoted argument stays an
+argument while prose inside a `-m` message is one word that is never a
+command word.
 
 ### Check every `--body-file` match, not just the first
 
@@ -233,21 +237,22 @@ nothing is lost by that: since git 2.0 a plain `git add <pathspec>`
 already behaves as `-A` within that pathspec, so the flag is redundant
 wherever it is safe.
 
-Detection walks tokens rather than pattern-matching the raw string:
-find `git`, skip its global options (consuming the operand of `-C`,
-`-c`, `--git-dir`, `--work-tree`, `--namespace`, `--config-env`),
-require the subcommand to be exactly `add` or `stage`, then look for a
-whole-tree token among the rest. That is what keeps `git add-something
--A`, `git log -- .` and `git diff .` passing. One wrinkle: a quoted
-whole-tree pathspec is an *argument*, not prose, so it is unwrapped to
-its bare form before the shared quote strip runs — otherwise the strip
-that protects commit messages would delete the very token the rule
-exists to catch. The unwrap covers all four spellings in both quote
-styles, not just the two that must be quoted to work: `'*'` and `':/'`
-shipped covered because quoting them is how they are normally written,
-but `git add '.'` and `git add './'` are the same command as their bare
-forms and passed the guard until the list was completed. Any spelling
-the rule denies bare, it denies quoted.
+Detection walks words rather than pattern-matching the raw string: the
+command is split quote-aware by `shell_split`, `git_walk` finds `git`
+as the command word and skips its global options, the subcommand must
+be exactly `add` or `stage`, and then a whole-tree word is looked for
+among the rest. That is what keeps `git add-something -A`, `git log --
+.`, `git diff .` and `echo git add -A` passing. Because quotes are
+removed the way the shell removes them, a quoted pathspec or flag is
+the same word as its bare spelling — `git add '*'`, `git add "."` and
+`git add "-A"` are all denied — so any spelling the rule denies bare,
+it denies quoted. Deleting quoted spans, as `deny-no-verify.sh` does,
+would delete the very argument this rule exists to catch, and a list
+of quoted spellings to unwrap first can only trail the bare ones. A
+word whose value is unknown never denies: `"$f"`, and also `-A"$x"`,
+where a whole-tree token is joined to an expansion. That under-denies,
+the safe direction; the value is not available before the command
+runs.
 
 ### Deny bulk discards, ask per-file restores
 
@@ -317,13 +322,10 @@ linear in practice. `git` must be the command word, by basename
 words and the wrappers `git_walk` lists (`sudo`, `env`, `xargs`,
 `timeout <dur>` and kin, each with its own option arity), so `echo git
 checkout -- .` passes, here and in `deny-git-add-all.sh`, which shares
-the walk. The earlier add hook took `git` anywhere in a segment; a
-security review diffed the two and the walk gained `xargs`, `setsid`,
-`stdbuf`, `ionice` and basename matching, so the only forms that
-denied before and pass now are `echo git add -A` (by design), a `git`
-behind an unlisted wrapper (`busybox`, `watch`, `chronic`, `eval`), and
-a leading redirection such as `2>/dev/null git add -A` until the add
-hook moves onto `shell_split`.
+the split and the walk. Against matching `git` anywhere in a segment,
+the command-word rule gives up a `git` behind an unlisted wrapper
+(`busybox`, `watch`, `chronic`, `eval`) or reserved word (`function f {
+git …; }`); `echo git add -A` passing is the point of it.
 
 **Trusted root for the commit test.** The `rev-parse` runs before the
 command is approved, in a directory the command names. It runs only
@@ -342,12 +344,11 @@ nested under it, such as one cloned there, is inside.
 Residuals: subshell scoping of `cd` is not modelled; `$VAR`, `~`, globs
 and braces are not expanded; discards through `$( … )`, backticks,
 `bash -c` and `eval` are opaque, as is anything `xargs` feeds a `git`
-command; a word holding `\036` or
-`\037`, `shell_split`'s separators, mis-splits. Out of scope: `-c
-clean.requireForce=false clean`, `git rm -f` on a modified file, `git
-worktree remove --force`, and non-git overwrites (`cp`, `sed -i`,
-`rm`). Any `shared-claude.md` line for this hazard is proposed to the
-tier's own repo, never edited from here.
+command; a word holding `\036` or `\037`, `shell_split`'s separators,
+mis-splits. Out of scope: `-c clean.requireForce=false clean`, `git rm
+-f` on a modified file, `git worktree remove --force`, and non-git
+overwrites (`cp`, `sed -i`, `rm`). Any `shared-claude.md` line for this
+hazard is proposed to the tier's own repo, never edited from here.
 
 ### Abbreviated shas, with a closed exclusion list
 
@@ -637,13 +638,13 @@ JSON channel uniformly keeps every script's shape identical regardless
 of its decision, and matches
 [[hook-output-channels]] in the shared memory tier.
 
-One non-zero exit is a failure, not a decision.
-`deny-worktree-discarding-git.sh` captures `shell_split`'s output under
-`set -e`, so an awk that fails ends the hook with awk's status. A syntax
-error exits 2, which blocks the call with awk's stderr as the reason:
-a broken awk refuses the commands past the hook's prefilter instead of
-passing them all. Any other non-zero status is a non-blocking error,
-and the call proceeds.
+One non-zero exit is a failure, not a decision. The three git-walking
+hooks capture `shell_split`'s output under `set -e`, so an awk that
+fails ends the hook with awk's status. A syntax error exits 2, which
+blocks the call with awk's stderr as the reason: a broken awk refuses
+the commands past the hook's prefilter instead of passing them all.
+Any other non-zero status is a non-blocking error, and the call
+proceeds.
 
 ### A deny splits three ways by audience
 

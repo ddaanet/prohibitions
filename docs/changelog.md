@@ -4,6 +4,28 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-10-08** — `deny-git-add-all.sh` moves onto `shell_split`: the
+  quote strip and the quoted-pathspec unwrap list go, since a quoted
+  word is now the same word as its bare spelling. `git add "-A"` and
+  `git add '--all'` deny, as "any spelling denied bare is denied quoted"
+  promised; a leading redirection (`2>/dev/null git add -A`) denies
+  again and an escaped command word (`\git add -A`) denies for the first
+  time; and a quoted string holding an escaped `"` no longer leaks its
+  contents as a command (`echo "say \"; git add -A; \" here"` passes).
+  One form goes the other way: a whole-tree token joined to an
+  expansion (`git add -A"$x"`) is now a word of unknown value and
+  passes, where the quote strip used to expose `-A`. The existing suite
+  is unchanged; each of those new cases failed against the previous
+  hook first. `git add "$f"`, a spaced quoted path and a bare `git add
+  -p` are pinned as passes. The heredoc commit case no longer exercises
+  the heredoc strip, since its body sits inside `"$( … )"` and splits as
+  one word; an unquoted heredoc note holding `git add -A` now does, and
+  reds with the strip removed. Re-inserting the old quote strip ahead of
+  the split redded the quoted deny cases and the escaped-quote pass
+  case. Letting unknown-value words match redded nothing: such a word
+  always keeps its `$` or backtick, so it can never equal a whole-tree
+  token, and the check states the guarantee rather than carrying it.
+
 - **2026-10-08** — `ask-branch-worktree-bash.sh` drops its regexes for
   the shared walk: `shell_split`, `git_walk`, and `git_checkout_parse`
   for `checkout`/`switch`, where mode `create` asks; `worktree add` and
@@ -14,8 +36,9 @@ entry — see [[design-doc-writing]] for when that split is worth making.
   which a deny-beats-ask pipeline would show anyway. The hook passes no
   directory to the parser, so it never spawns `git`. The existing suite
   is unchanged; `git -C d checkout -b x` and `git -c a=b switch -c x`
-  are added as asks. The four new pass cases failed against the regex
-  hook first; the two asks already passed there, and disabling the
+  are added as asks. Four of the five new pass cases failed against the
+  regex hook first, the quoted `gh pr create` body already passing
+  there; the two asks already passed there too, and disabling the
   walk's global-option skip redded both. A shim test with a
   discard-hook control asserts the no-spawn property.
 

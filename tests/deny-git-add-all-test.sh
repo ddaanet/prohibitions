@@ -100,7 +100,12 @@ for cmd in \
   'GIT_EXEC=/usr/bin/git git add -A' \
   '/usr/bin/git add -A' \
   'sudo -u bob /usr/bin/git add -A' \
-  'env -i /usr/bin/git add .'
+  'env -i /usr/bin/git add .' \
+  'git add "-A"' \
+  "git add '--all'" \
+  '2>/dev/null git add -A' \
+  '>/dev/null 2>&1 git add .' \
+  '\git add -A'
 do
   out="$(run "$cmd")"
   assert_denied "$cmd" "$out"
@@ -115,6 +120,8 @@ assert_denied 'multi-line command with git add -A on line 2' "$out"
 # Real must-allow traffic: targeted staging (the 77% case), the tracked-only
 # `-u`, paths that merely start with or contain the whole-tree spellings, and
 # other commands that share a word with the trigger but aren't the trigger.
+# `"$f"` is single-quoted on purpose: the hook must see the unexpanded word.
+# shellcheck disable=SC2016
 for cmd in \
   'git add path/file' \
   'git add ./path/file' \
@@ -144,7 +151,12 @@ for cmd in \
   'git log -- .' \
   'git diff .' \
   'ls -A .' \
-  'git add path/file && git commit -m "wip" && git push'
+  'git add path/file && git commit -m "wip" && git push' \
+  'echo "say \"; git add -A; \" here"' \
+  'git add "my file.txt"' \
+  'git add -p' \
+  'git add "$f"' \
+  'for f in a.sh b.sh; do git add "$f"; done'
 do
   out="$(run "$cmd")"
   [ -z "$out" ] || fail "[$cmd] expected pass-through, got: $out"
@@ -152,8 +164,7 @@ done
 
 # A heredoc-style commit message (this project's own convention for
 # multi-line commits) that documents the refused forms in prose must not
-# false-deny — heredoc bodies aren't quoted with '/" so the quote-stripping
-# alone doesn't cover them; the hook must also strip heredoc bodies.
+# false-deny. Inside `"$( … )"` the split already keeps the body in one word.
 heredoc_cmd="$(cat <<'CMD'
 git commit -m "$(cat <<'EOF'
 Also refuse git add -A and git add .
@@ -163,6 +174,13 @@ CMD
 )"
 out="$(run "$heredoc_cmd")"
 [ -z "$out" ] || fail "heredoc commit message mentioning whole-tree adds expected pass-through, got: $out"
+
+# An unquoted heredoc body is not quoted with '/" at all, so the quote-aware
+# split would read its lines as commands; only stripping heredoc bodies keeps
+# a note that quotes the refused command from false-denying.
+note_cmd=$'cat <<\'EOF\' > notes.md\ngit add -A\nEOF'
+out="$(run "$note_cmd")"
+[ -z "$out" ] || fail "unquoted heredoc body holding git add -A expected pass-through, got: $out"
 
 # Real traffic this matcher's script must let through unharmed, even if ever
 # mis-wired to a broader matcher: every other tool call passes through silent.
