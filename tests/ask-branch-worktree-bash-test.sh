@@ -33,7 +33,9 @@ for cmd in \
   'git switch --create feature/foo' \
   'git worktree add ../foo feature/foo' \
   'git stash branch feature/foo' \
-  'git stash branch feature/foo stash@{0}'
+  'git stash branch feature/foo stash@{0}' \
+  'git -C d checkout -b x' \
+  'git -c a=b switch -c x'
 do
   out="$(run "$cmd")"
   printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' \
@@ -79,6 +81,20 @@ do
   [ -z "$out" ] || fail "[$cmd] expected pass-through (no adjacent creation form), got: $out"
 done
 
+# The trigger words only count when `git` is the command word and the walk
+# lands on the subcommand: prose after echo, or a non-creating git command whose
+# arguments happen to spell a creation form, must not ask.
+for cmd in \
+  'echo checkout -b x' \
+  'echo git checkout -b x' \
+  'echo git worktree add ../x' \
+  'git log --oneline -- checkout -b' \
+  'gh pr create --body "start with git switch -c x"'
+do
+  out="$(run "$cmd")"
+  [ -z "$out" ] || fail "[$cmd] expected pass-through (git is not the command word, or the subcommand is not a creation form), got: $out"
+done
+
 # A heredoc-style commit message (this project's own convention for
 # multi-line commits) that documents "checkout -b" in prose must not
 # false-ask — heredoc bodies aren't quoted with '/" so the quote-stripping
@@ -92,6 +108,30 @@ CMD
 )"
 out="$(run "$heredoc_cmd")"
 [ -z "$out" ] || fail "heredoc commit message mentioning checkout -b expected pass-through, got: $out"
+
+# Only `create` asks, and it never depends on the directory, so the hook
+# spawns no git, even for an operand that exists in the payload cwd, where
+# the shared parser would otherwise run its rev-parse commit test. A logging
+# git shim on PATH records every call; the trusted root is the payload cwd.
+real_git="$(command -v git)"
+scratch="$(mktemp -d "${TMPDIR:-/tmp}/abw-shim.XXXXXX")"
+trap 'rm -rf "$scratch"' EXIT
+mkdir "$scratch/bin"
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"%s"\nexec "%s" "$@"\n' "$scratch/calls.log" "$real_git" >"$scratch/bin/git"
+chmod +x "$scratch/bin/git"
+: >"$scratch/f"
+for cmd in 'git checkout f' 'git checkout main f' 'git checkout -b x'; do
+  : >"$scratch/calls.log"
+  jq -nc --arg c "$cmd" --arg d "$scratch" '{tool_name: "Bash", tool_input: {command: $c}, cwd: $d}' \
+    | env -u CLAUDE_PROJECT_DIR PATH="$scratch/bin:$PATH" bash "$hook" >/dev/null 2>&1 || true
+  [ ! -s "$scratch/calls.log" ] || fail "[$cmd] hook spawned git: $(tr '\n' '|' <"$scratch/calls.log")"
+done
+# Control: the discard hook, sharing the parser, does reach the shim on the
+# same payload, so the empty logs above are not an unreachable shim.
+: >"$scratch/calls.log"
+jq -nc --arg d "$scratch" '{tool_name: "Bash", tool_input: {command: "git checkout f"}, cwd: $d}' \
+  | env -u CLAUDE_PROJECT_DIR PATH="$scratch/bin:$PATH" bash "$repo_root/scripts/deny-worktree-discarding-git.sh" >/dev/null 2>&1 || true
+grep -q 'rev-parse' "$scratch/calls.log" || fail "[control] the discard hook did not reach the git shim"
 
 # Real traffic this matcher's script must let through unharmed, even if ever
 # mis-wired to a broader matcher: every other tool call passes through silent.

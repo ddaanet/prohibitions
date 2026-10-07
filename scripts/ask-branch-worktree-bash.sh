@@ -4,61 +4,90 @@
 #
 # My human partner owns branching — never create or switch branches or
 # worktrees unprompted. See shared-claude.md "My human partner owns
-# branching". Scoped to the unambiguous creation forms only: a bare
-# `git checkout <ref>` is indistinguishable from `git checkout <file>` (real
-# traffic that must stay silent), so this does not fire on checkout/switch
-# without a creation flag.
+# branching". Scoped to the creation forms: a plain `git checkout <ref>` or
+# `git switch <ref>` does not ask. Branch versus path is decidable now
+# (`git_checkout_parse` makes that call for the deny hook), so asking on a
+# plain switch is possible, but it is a separate decision this hook has not
+# taken.
 #
-# Mechanical: the subcommand and its creation flag must be adjacent (allowing
-# other flags between them), not merely co-occurring anywhere in the command
-# string — co-occurrence alone false-positives on unrelated commands that
-# just happen to mention both words (e.g. `git worktree list && git add -A`,
-# or a commit message that mentions "checkout -b"). Quoted regions are
-# stripped first so such prose in a message/title doesn't match; heredoc
-# bodies are stripped the same way, since a heredoc-style commit message
-# (this project's own convention for multi-line commits) isn't wrapped in
-# `'`/`"` and would otherwise leak prose straight through. Doesn't try to
-# fully shell-parse the command.
+# Mechanism: the command text is heredoc-stripped, split quote-aware into
+# simple commands and words by `shell_split`, and each segment is walked by
+# `git_walk` (scripts/lib/git-command.sh). `git` must be the command word,
+# global options such as `-C d` and `-c a=b` skipped, so `echo checkout -b x`,
+# a commit message or a `-- checkout -b` pathspec never matches. A
+# `checkout`/`switch` goes to `git_checkout_parse`, and mode `create` asks
+# (`-b`, `-B`, `-c`, `-C`, `--orphan`, `--create` in any order or cluster);
+# `worktree add` and `stash branch` are the first argument after the
+# subcommand. The mode for `create` does not depend on the directory, so
+# the directory is passed as unknown: no `cd` tracking, no lookup on disk,
+# and no `git` subprocess. A forced create (`checkout -f -b x`) is
+# `discard_switch`, not `create`: deny-worktree-discarding-git.sh refuses
+# it, and a deny would beat this hook's ask, so this hook does not ask.
+#
+# Residuals: `$( ... )`, backticks, `bash -c` and `eval` are opaque, and so
+# is a `git` behind a wrapper `git_walk` does not list; a word holding \036
+# or \037 mis-splits.
 set -euo pipefail
 
-# shellcheck source-path=SCRIPTDIR source=lib/shell-text.sh
-. "$(dirname "$0")/lib/shell-text.sh"
+# shellcheck source-path=SCRIPTDIR source=lib/git-command.sh
+. "$(dirname "$0")/lib/git-command.sh"
 
-input="$(cat)"
-tool_name="$(jq -r '.tool_name // ""' <<<"$input")"
-[ "$tool_name" = "Bash" ] || exit 0
+main() {
+  local input command stripped split seg
+  input="$(cat)"
+  [ "$(jq -r '.tool_name // ""' <<<"$input")" = "Bash" ] || exit 0
 
-command="$(jq -r '.tool_input.command // ""' <<<"$input")"
-stripped="$(strip_heredocs "$command")"
-stripped="$(sed -E "s/'[^']*'//g; s/\"[^\"]*\"//g" <<<"$stripped")"
+  command="$(jq -r '.tool_input.command // ""' <<<"$input")"
+  stripped="$(strip_heredocs "$command")"
+  [[ "$stripped" == *git* ]] || exit 0
 
-# `\b` is a GNU extension with no POSIX ERE equivalent, so on BSD/macOS grep
-# it is undefined rather than an error — every match below would quietly stop
-# firing and the guard would go silent. `W` spells the same boundary in the
-# ERE POSIX guarantees everywhere; the trailing edge is written out as
-# `([^A-Za-z0-9_]|$)` where a subexpression follows it.
-W='(^|[^A-Za-z0-9_])'
-
-trigger=""
-if grep -Eq -- "${W}checkout([[:space:]]+-[^[:space:]]+)*[[:space:]]+-[bB]([[:space:]]|\$)" <<<"$stripped"; then
-  trigger="git checkout -b"
-elif grep -Eq -- "${W}switch([[:space:]]+-[^[:space:]]+)*[[:space:]]+(-[cC]|--create)([[:space:]]|\$)" <<<"$stripped"; then
-  trigger="git switch -c"
-elif grep -Eq -- "${W}worktree[[:space:]]+add([^A-Za-z0-9_]|\$)" <<<"$stripped"; then
-  trigger="git worktree add"
-elif grep -Eq -- "${W}stash[[:space:]]+branch([^A-Za-z0-9_]|\$)" <<<"$stripped"; then
-  trigger="git stash branch"
-else
+  # Captured rather than read from a process substitution, whose exit status
+  # is lost: a failing awk then ends the hook instead of passing the command.
+  split="$(shell_split "$stripped")"
+  while IFS= read -r -d $'\036' seg; do
+    judge_segment "$seg"
+  done <<<"$split"
   exit 0
-fi
+}
 
-agent_reason="This command runs '$trigger', which creates or switches a
+# Asks when the segment is one of the four creation forms.
+judge_segment() {  # $1 = segment
+  local -a words=() args=()
+  local sub
+  IFS=$'\037' read -r -d '' -a words < <(printf '%s' "$1") || true
+
+  git_walk "${words[@]}"
+  (( git_sub_index >= 0 )) || return 0
+
+  sub="${words[git_sub_index]:1}"
+  if (( ${#words[@]} > git_sub_index + 1 )); then
+    args=("${words[@]:git_sub_index+1}")
+  fi
+
+  case "$sub" in
+    checkout | switch)
+      git_checkout_parse "" "$sub" "${args[@]+"${args[@]}"}"
+      [ "$gc_mode" = "create" ] || return 0
+      if [ "$sub" = "checkout" ]; then emit_ask "git checkout -b"; else emit_ask "git switch -c"; fi ;;
+    worktree)
+      [ "${args[0]+${args[0]:1}}" = "add" ] && emit_ask "git worktree add" ;;
+    stash)
+      [ "${args[0]+${args[0]:1}}" = "branch" ] && emit_ask "git stash branch" ;;
+  esac
+  return 0
+}
+
+emit_ask() {  # $1 = trigger
+  local agent_reason human_msg
+  agent_reason="This command runs '$1', which creates or switches a
 branch or worktree. My human partner owns branching — confirm before
 proceeding, even when a workflow skill directs starting feature work on a
 fresh branch or worktree."
+  human_msg="branch/worktree creation ($1) — confirm: $command"
 
-human_msg="branch/worktree creation ($trigger) — confirm: $command"
+  jq -nc --arg r "$agent_reason" --arg s "$human_msg" \
+    '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: $r}, systemMessage: $s}'
+  exit 0
+}
 
-jq -nc --arg r "$agent_reason" --arg s "$human_msg" \
-  '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: $r}, systemMessage: $s}'
-exit 0
+main

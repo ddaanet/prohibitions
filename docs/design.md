@@ -58,9 +58,11 @@ hazard gets a hook directly or nothing.
   worktree-discard guard asks on it, since it overwrites that file's
   uncommitted edits.
 - **Mechanical, not a shell parser.** Detection is regex/word-boundary
-  matching over the command string (with quoted and heredoc regions
-  stripped first, so prose mentioning a trigger word doesn't fire the
-  guard), not a full shell grammar.
+  matching over the command string, or a word walk over `shell_split`'s
+  quote-aware split, with heredoc bodies stripped first so prose
+  mentioning a trigger word doesn't fire the guard — not a full shell
+  grammar: expansions are not performed, and `$( … )`, `bash -c` and
+  `eval` stay opaque.
 - **POSIX and bash 3.2, so the hooks run on macOS as well as Linux.**
   These scripts run wherever Claude Code runs, and the plugin is
   installed from a marketplace rather than built per machine, so a
@@ -114,7 +116,7 @@ hazard gets a hook directly or nothing.
   | Other repos stay read-only | `Write\|Edit`, path outside `CLAUDE_PROJECT_DIR`; a `Write` creating a new `.md` exempt, except `CLAUDE.md` and anything under `.claude/` | **ask** | `ask-write-edit-outside-project.sh` |
   | Never hand-edit a vendored subtree | `Write\|Edit`, a `plugin-dev` segment at a git tree root (`.git`-adjacent) | deny | `deny-plugin-dev-edit.sh` |
   | Never `--no-verify` | `Bash`, regex over `git commit`/`git push` | deny | `deny-no-verify.sh` |
-  | Never create/switch branches or worktrees | `Bash` (`checkout -b`, `switch -c`, `worktree add`, `stash branch`) | **ask** | `ask-branch-worktree-bash.sh` |
+  | Never create/switch branches or worktrees | `Bash`, `git` as the command word: `checkout -b/-B/--orphan`, `switch -c/-C/--orphan`, `worktree add`, `stash branch` | **ask** | `ask-branch-worktree-bash.sh` |
   | ″ | `EnterWorktree` | **ask** | `ask-enter-worktree.sh` |
   | No volatile git state in memory files | `Write\|Edit` on `*.md` under a `memory` segment at a git tree root (`.git`-adjacent), `` `[0-9a-f]{5,40}` `` minus digits/hex-words/frontmatter/UUIDs/`hygiene-ok` lines | deny | `deny-volatile-memory-state.sh` |
   | GitHub bodies are not hard-wrapped | `Bash` on `gh pr\|issue create\|comment\|edit\|review` with `--body-file` | deny | `deny-hardwrapped-gh-body.sh` |
@@ -184,18 +186,24 @@ the only way to remove the prompt from the permitted case.
 
 ### Strip quoted and heredoc regions before matching
 
-`deny-no-verify.sh`, `ask-branch-worktree-bash.sh` and
-`deny-git-add-all.sh` strip `'...'`/`"..."` spans from the command
-string before matching, so a commit message that *mentions*
-`--no-verify`, `checkout -b` or `git add -A` in prose doesn't
-false-trigger. A heredoc body (`<<'EOF' … EOF`) isn't wrapped in quote
-characters at all, and this project's own commit-message convention
-uses heredocs for multi-line messages — so a real commit documenting
-these hooks (e.g. "Document that `--no-verify` is refused by the new
-hook") false-triggered the first two scripts, including a hard **deny**
-blocking a safe commit. All three strip heredoc bodies (tracking the
-opener, its optional `-` tab-stripping mode, and its terminator line)
-ahead of the quote strip.
+A commit message that *mentions* `--no-verify`, `checkout -b` or `git
+add -A` in prose must not trigger the hook that refuses it. A heredoc
+body (`<<'EOF' … EOF`) isn't wrapped in quote characters at all, and
+this project's own commit-message convention uses heredocs for
+multi-line messages — so a real commit documenting these hooks (e.g.
+"Document that `--no-verify` is refused by the new hook")
+false-triggered the first scripts, including a hard **deny** blocking a
+safe commit. Every script that reads command text therefore strips
+heredoc bodies first (`strip_heredocs`, `scripts/lib/shell-text.sh`:
+the opener, its optional `-` tab-stripping mode, and its terminator
+line).
+
+What follows differs by script. `deny-no-verify.sh` and
+`deny-git-add-all.sh` delete `'...'`/`"..."` spans and match what is
+left. `deny-worktree-discarding-git.sh` and `ask-branch-worktree-bash.sh`
+split the text quote-aware with `shell_split` instead and walk the
+words, so a quoted argument stays an argument while prose inside a `-m`
+message is one word that is never a command word.
 
 ### Check every `--body-file` match, not just the first
 

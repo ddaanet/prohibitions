@@ -4,6 +4,21 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-10-08** — `ask-branch-worktree-bash.sh` drops its regexes for
+  the shared walk: `shell_split`, `git_walk`, and `git_checkout_parse`
+  for `checkout`/`switch`, where mode `create` asks; `worktree add` and
+  `stash branch` are read off the walk. `git` must now be the command
+  word, so `echo checkout -b x`, `echo git worktree add ../x` and `git
+  log -- checkout -b` stop asking. A forced create (`checkout -f -b x`)
+  parses as a forced switch and is left to the discard hook's deny,
+  which a deny-beats-ask pipeline would show anyway. The hook passes no
+  directory to the parser, so it never spawns `git`. The existing suite
+  is unchanged; `git -C d checkout -b x` and `git -c a=b switch -c x`
+  are added as asks. The four new pass cases failed against the regex
+  hook first; the two asks already passed there, and disabling the
+  walk's global-option skip redded both. A shim test with a
+  discard-hook control asserts the no-spawn property.
+
 - **2026-10-08** — Three security-review findings against
   `scripts/lib/git-command.sh`. *Guard bypass*: `/usr/bin/git reset
   --hard` and `xargs git reset --hard` passed the discard hook; `git_walk`
