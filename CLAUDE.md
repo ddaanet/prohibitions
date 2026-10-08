@@ -57,6 +57,9 @@ just update-plugin-dev dist-vX.Y.Z # pull a newer plugin-dev/ toolkit version (d
 - **`docs/changelog.md`** — write-time record of each change, newest first.
 - **`plans/`** — prospective content only: the bootstrap brief and any
   future implementation plans. `docs/` holds what is true now.
+- **`inbox/`** — where a brief arriving from a session in *another*
+  repository goes, never the repo root, where it reads as a tracked project
+  document. `inbox/README.md` has the triage rule.
 - **`memory/`** — the `ddaanet` shared memory tier, mounted as a submodule
   via gitlore; includes `shared-claude.md`, the prose these hooks are
   converting rule-by-rule. This plugin's installation (via the marketplace)
