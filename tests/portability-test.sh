@@ -60,8 +60,8 @@ check 'GNU-only \b word boundary' \
   'spell the boundary as ([^A-Za-z0-9_]|^) / ([^A-Za-z0-9_]|$)'
 
 # BSD realpath has no -m, and macOS before 12.3 ships no realpath at all;
-# `readlink -f` is likewise GNU-only. ask-write-edit-outside-project.sh
-# carries a portable abspath() built from `cd -P` and `pwd`.
+# `readlink -f` is likewise GNU-only. scripts/lib/path.sh carries a portable
+# abspath() built from `cd -P` and `pwd`.
 check 'GNU-only path resolution' \
   '(^|[^A-Za-z0-9_-])(realpath|readlink)([^A-Za-z0-9_-]|$)' \
   'use the abspath() helper (cd -P + pwd)'

@@ -4,6 +4,13 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-10-08** — `abspath()` moves out of
+  `ask-write-edit-outside-project.sh` into `scripts/lib/path.sh`, ahead
+  of a second hook that compares a target against a directory. The
+  `unset CDPATH` it depends on moves with it and now runs at source
+  time, so a sourcing script cannot forget it. No behaviour change: the
+  hook's suite is untouched and passes before and after.
+
 - **2026-10-08** — `deny-git-add-all.sh` moves onto `shell_split`: the
   quote strip and the quoted-pathspec unwrap list go, since a quoted
   word is now the same word as its bare spelling. `git add "-A"` and

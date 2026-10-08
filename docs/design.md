@@ -72,8 +72,8 @@ hazard gets a hook directly or nothing.
 
   - **Utilities are POSIX; GNU extensions are out.** No `realpath -m`
     or `readlink -f` (BSD realpath has no `-m`, and macOS before 12.3
-    ships no realpath at all — `ask-write-edit-outside-project.sh`
-    carries a portable `abspath()` built from `cd -P` and `pwd`), no
+    ships no realpath at all — `scripts/lib/path.sh` carries a
+    portable `abspath()` built from `cd -P` and `pwd`), no
     `\b` in an ERE, no `sed -i` without a suffix, no `grep -P`, `date
     -d`, `stat -c`, `find -printf` or `timeout`. `jq`, `awk`, `sed -E`
     and `tr` are fair game in their POSIX subsets; awk interval
