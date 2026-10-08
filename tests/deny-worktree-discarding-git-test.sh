@@ -166,7 +166,11 @@ for cmd in \
   'exec git reset --hard' \
   'nohup git reset --hard' \
   'xargs git reset --hard' \
-  'GIT_EXEC=/usr/bin/git git reset --hard'
+  'GIT_EXEC=/usr/bin/git git reset --hard' \
+  "git re''set --hard" \
+  'g"i"t reset --hard' \
+  'git re\set --hard' \
+  "git clea''n -f"
 do
   assert_denied "$cmd" "$(run "$cmd")"
 done

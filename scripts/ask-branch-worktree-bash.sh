@@ -33,13 +33,16 @@ set -euo pipefail
 . "$(dirname "$0")/lib/git-command.sh"
 
 main() {
-  local input command stripped split seg
+  local input command stripped pre split seg
   input="$(cat)"
   [ "$(jq -r '.tool_name // ""' <<<"$input")" = "Bash" ] || exit 0
 
   command="$(jq -r '.tool_input.command // ""' <<<"$input")"
   stripped="$(strip_heredocs "$command")"
-  [[ "$stripped" == *git* ]] || exit 0
+  # Prefilter on the text with quote and backslash characters dropped, so a
+  # word bash de-quotes to `git` (`g''it`, `g\it`) still enters.
+  pre="${stripped//[\'\"\\]/}"
+  [[ "$pre" == *git* ]] || exit 0
 
   # Captured rather than read from a process substitution, whose exit status
   # is lost: a failing awk then ends the hook instead of passing the command.

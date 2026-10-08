@@ -4,6 +4,17 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-10-08** — The three `shell_split` git hooks
+  (`deny-worktree-discarding-git.sh`, `deny-git-add-all.sh`,
+  `ask-branch-worktree-bash.sh`) ran their cheap substring prefilter on
+  the raw text, so a command word bash de-quotes to `git` or to the
+  subcommand (`git re''set --hard`, `g"i"t add .`, `g\it switch -c x`)
+  exited before the walk ever saw it. The add hook's pre-`shell_split`
+  version denied these, because it stripped quotes first. The prefilter
+  now runs on the text with every `'`, `"` and `\` dropped, a superset
+  of any de-quoted word. Flagged by the background security review.
+  Red check: the nine new cases failed on their verdict assertion
+  against the unchanged hooks, and every other case passed.
 - **2026-10-08** — New hook `deny-plugin-root-edit.sh` on
   `Write|Edit|MultiEdit|NotebookEdit`, in its own `PreToolUse` block so
   the other edit hooks stay off `NotebookEdit`. An edit at or below a

@@ -42,7 +42,7 @@ set -euo pipefail
 . "$(dirname "$0")/lib/git-command.sh"
 
 main() {
-  local input command cwd stripped split seg
+  local input command cwd stripped pre split seg
   input="$(cat)"
   [ "$(jq -r '.tool_name // ""' <<<"$input")" = "Bash" ] || exit 0
 
@@ -54,8 +54,11 @@ main() {
   gc_cwd="$cwd"
 
   stripped="$(strip_heredocs "$command")"
-  [[ "$stripped" == *git* ]] || exit 0
-  [[ "$stripped" =~ (checkout|restore|reset|clean|stash|switch) ]] || exit 0
+  # Prefilter on the text with quote and backslash characters dropped, so a
+  # word bash de-quotes to `git` or `reset` (`re''set`, `g\it`) still enters.
+  pre="${stripped//[\'\"\\]/}"
+  [[ "$pre" == *git* ]] || exit 0
+  [[ "$pre" =~ (checkout|restore|reset|clean|stash|switch) ]] || exit 0
 
   effdir="$cwd"
   ask_subs=""

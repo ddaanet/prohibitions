@@ -105,7 +105,10 @@ for cmd in \
   "git add '--all'" \
   '2>/dev/null git add -A' \
   '>/dev/null 2>&1 git add .' \
-  '\git add -A'
+  '\git add -A' \
+  "git a''dd -A" \
+  'g"i"t add .' \
+  'git st\age -A'
 do
   out="$(run "$cmd")"
   assert_denied "$cmd" "$out"

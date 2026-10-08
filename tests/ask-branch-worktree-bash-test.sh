@@ -35,7 +35,9 @@ for cmd in \
   'git stash branch feature/foo' \
   'git stash branch feature/foo stash@{0}' \
   'git -C d checkout -b x' \
-  'git -c a=b switch -c x'
+  'git -c a=b switch -c x' \
+  "g''it checkout -b x" \
+  'g\it switch -c x'
 do
   out="$(run "$cmd")"
   printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' \
