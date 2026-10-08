@@ -733,13 +733,14 @@ JSON channel uniformly keeps every script's shape identical regardless
 of its decision, and matches
 [[hook-output-channels]] in the shared memory tier.
 
-One non-zero exit is a failure, not a decision. The three git-walking
-hooks capture `shell_split`'s output under `set -e`, so an awk that
-fails ends the hook with awk's status. A syntax error exits 2, which
-blocks the call with awk's stderr as the reason: a broken awk refuses
-the commands past the hook's prefilter instead of passing them all.
-Any other non-zero status is a non-blocking error, and the call
-proceeds.
+There is no exception. A hook that cannot read the command is failing,
+not deciding, and a failure never blocks. The three git-walking hooks
+capture `shell_split`'s output and, if its awk fails, `shell_split_failed`
+(`scripts/lib/shell-text.sh`) prints only a `systemMessage` naming the
+hook and the failure, with no `permissionDecision`, and exits 0: the call
+proceeds, and the human sees that it went unchecked. Each hook's test
+forces the failure with an `awk` stub on `PATH`, the route production
+takes.
 
 ### A deny splits three ways by audience
 

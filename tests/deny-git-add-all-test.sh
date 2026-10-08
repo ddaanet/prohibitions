@@ -192,6 +192,23 @@ for t in Write Edit Read AskUserQuestion; do
   [ -z "$passthrough" ] || fail "[$t] expected pass-through, got: $passthrough"
 done
 
+# A failing awk is a hook failure, not a verdict: it must pass the call with a
+# systemMessage naming the failure, never block it. The stub sits first on
+# PATH, so the hook reaches it the way production reaches awk. The control
+# payload is the one this hook acts on with a working awk.
+awk_stub="$(mktemp -d "${TMPDIR:-/tmp}/awk-stub.XXXXXX")"
+printf '#!/bin/sh\nexit 2\n' >"$awk_stub/awk"
+chmod +x "$awk_stub/awk"
+awk_payload="$(jq -nc '{tool_name: "Bash", tool_input: {command: "git add ."}, cwd: "'"${fixture:-/}"'"}')"
+rc=0
+out="$(printf '%s' "$awk_payload" | PATH="$awk_stub:$PATH" bash "$hook" 2>/dev/null)" || rc=$?
+rm -rf "$awk_stub"
+[ "$rc" -eq 0 ] || fail "[awk failure] exit $rc, expected 0 (a failed parse must not block)"
+printf '%s' "$out" | jq -e '(.systemMessage // "") | length > 0' >/dev/null 2>&1 \
+  || fail "[awk failure] no systemMessage naming the failure: $out"
+printf '%s' "$out" | jq -e '(.hookSpecificOutput.permissionDecision // "") == ""' >/dev/null 2>&1 \
+  || fail "[awk failure] carried a permissionDecision: $out"
+
 if (( failures > 0 )); then
   printf '\n%d failure(s)\n' "$failures" >&2
   exit 1

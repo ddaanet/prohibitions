@@ -57,6 +57,16 @@ strip_heredocs() {
   printf '%s' "$out"
 }
 
+# shell_split_failed <hook> is the caller's answer to a failed shell_split:
+# the hook cannot read the command, so it passes the call and says on
+# systemMessage that it did not check. A failed parse is a hook failure, not
+# a verdict, and a hook failure must never block the call.
+shell_split_failed() {
+  jq -nc --arg s "prohibitions: $1 could not parse the command (shell_split failed); not checked" \
+    '{systemMessage: $s}'
+  exit 0
+}
+
 shell_split() {
   printf '%s\n' "$1" | LC_ALL=C awk '
     BEGIN {

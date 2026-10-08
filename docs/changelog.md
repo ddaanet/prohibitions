@@ -4,6 +4,19 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-10-09** — A `shell_split` failure in the three git-walking hooks
+  (`deny-worktree-discarding-git.sh`, `deny-git-add-all.sh`,
+  `ask-branch-worktree-bash.sh`) no longer blocks the call. Under `set -e`
+  the failing awk ended the hook with awk's status, and a syntax error's
+  exit 2 refused every command past the prefilter with awk's stderr as the
+  reason. Each hook now catches it through `shell_split_failed` in
+  `scripts/lib/shell-text.sh`, which prints a `systemMessage` naming the
+  hook and the failure, with no `permissionDecision`, and exits 0. The
+  exception is gone from design.md's "Deny output is stdout + exit 0"
+  decision. Red check: with a `PATH` stub `awk` that exits 2, the new case
+  in each of the three tests failed all three assertions (exit 2, no
+  `systemMessage`, no verdict) against the unchanged hook, and passed with
+  the change.
 - **2026-10-08** — The three `shell_split` git hooks
   (`deny-worktree-discarding-git.sh`, `deny-git-add-all.sh`,
   `ask-branch-worktree-bash.sh`) ran their cheap substring prefilter on

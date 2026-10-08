@@ -52,8 +52,8 @@ main() {
   [[ "$pre" =~ (add|stage) ]] || exit 0
 
   # Captured rather than read from a process substitution, whose exit status
-  # is lost: a failing awk then ends the hook instead of passing the command.
-  split="$(shell_split "$stripped")"
+  # is lost. A failing awk passes the call with a systemMessage, never blocks.
+  split="$(shell_split "$stripped")" || shell_split_failed deny-git-add-all
   while IFS= read -r -d $'\036' seg; do
     judge_segment "$seg"
   done <<<"$split"

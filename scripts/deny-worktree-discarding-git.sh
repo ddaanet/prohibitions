@@ -64,10 +64,8 @@ main() {
   ask_subs=""
   ask_paths=""
   # Captured rather than read from a process substitution, whose exit status
-  # is lost. A failing awk then ends the hook with awk's status: 2 for a
-  # syntax error, which blocks the call with awk's stderr as the reason. That
-  # fails closed for prefiltered commands only, instead of passing them all.
-  split="$(shell_split "$stripped")"
+  # is lost. A failing awk passes the call with a systemMessage, never blocks.
+  split="$(shell_split "$stripped")" || shell_split_failed deny-worktree-discarding-git
   while IFS= read -r -d $'\036' seg; do
     judge_segment "$seg"
   done <<<"$split"
