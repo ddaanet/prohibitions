@@ -4,6 +4,35 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-10-08** — New hook `deny-plugin-root-edit.sh` on
+  `Write|Edit|MultiEdit|NotebookEdit`, in its own `PreToolUse` block so
+  the other edit hooks stay off `NotebookEdit`. An edit at or below a
+  root the session loads as a plugin, from `CLAUDE_CODE_PLUGIN_DIRS` or
+  the `--plugin-dir[-no-mcp]` argv of the first `claude` ancestor, is
+  denied in `auto` and `dontAsk` with the cause and the recovery, and
+  noted on `systemMessage` in `default` and `acceptEdits`. It converts
+  no `shared-claude.md` rule; it is a harness hazard, like the
+  piped-gate pair. `tests/portability-test.sh` now bans `readlink` only
+  with an option (`-f`, `-e` and `-m` are GNU-only), since the hook
+  follows a leaf symlink with a bare `readlink`; `realpath` stays banned
+  outright. Red check: with a stub that only reads stdin, every deny
+  and note case failed on its verdict assertion (26 deny, 3 note) and
+  every pass case passed. Disabling
+  each condition in turn redded its case: the env source (1), the argv
+  source (8), the `=` form (9), the project-dir anchor (12), first
+  match (14, 15), `--` (16), the leaf-symlink follow (20), the mode
+  gate (25, 26) and `notebook_path` (27); raising the eight-hop cap to
+  nine redded the cap case (17). Review then added what that check
+  could not see, each redded by its mutation: a second 13 with the
+  hook's cwd apart from the claude's (resolving against the hook's own
+  `$PWD` passed the first), 31, an unenterable root dropped without
+  stderr (the failed `cd -P` in `abspath` had leaked `Permission
+  denied`, now silenced at the hook's call sites), and 32, empty
+  `--plugin-dir` values skipped. The cap case's `sh` no longer execs
+  the hook where `/bin/sh` is bash, which had shifted its hop count by
+  one. Rerun against the stub, the final suite reds all 28 deny and 3
+  note cases and passes every pass case.
+
 - **2026-10-08** — `abspath()` moves out of
   `ask-write-edit-outside-project.sh` into `scripts/lib/path.sh`, ahead
   of a second hook that compares a target against a directory. The

@@ -27,10 +27,12 @@ scoping rationale: `plans/brief-prohibitions-plugin-bootstrap.md`.
 The same economics hold for a workflow or harness hazard that no
 `shared-claude.md` rule names, when its failure is silent and its
 trigger mechanical: a gate piped into `tail` reports `tail`'s exit
-status, and a `git checkout -- <file>` issued to undo a probe discards
-every uncommitted edit that file held, whoever made it. Prose there
-would be a new always-on line rather than a converted one, so such a
-hazard gets a hook directly or nothing.
+status, a `git checkout -- <file>` issued to undo a probe discards
+every uncommitted edit that file held, whoever made it, and an edit
+under a directory the session loads as a plugin fails in auto mode with
+no reason the agent can act on. Prose there would be a new always-on
+line rather than a converted one, so such a hazard gets a hook directly
+or nothing.
 
 ## Requirements
 
@@ -70,10 +72,12 @@ hazard gets a hook directly or nothing.
   Linux one. Two contracts, both enforced by
   `tests/portability-test.sh`:
 
-  - **Utilities are POSIX; GNU extensions are out.** No `realpath -m`
-    or `readlink -f` (BSD realpath has no `-m`, and macOS before 12.3
-    ships no realpath at all — `scripts/lib/path.sh` carries a
-    portable `abspath()` built from `cd -P` and `pwd`), no
+  - **Utilities are POSIX; GNU extensions are out.** No `realpath`
+    or `readlink` with any option (BSD realpath has no `-m`, macOS
+    before 12.3 ships no realpath at all, and `readlink -f`, `-e` and
+    `-m` are GNU-only — `scripts/lib/path.sh` carries a portable
+    `abspath()` built from `cd -P` and `pwd`; a bare `readlink`, one
+    link at a time, exists on both), no
     `\b` in an ERE, no `sed -i` without a suffix, no `grep -P`, `date
     -d`, `stat -c`, `find -printf` or `timeout`. `jq`, `awk`, `sed -E`
     and `tr` are fair game in their POSIX subsets; awk interval
@@ -104,7 +108,7 @@ hazard gets a hook directly or nothing.
   `.version` reflects the *last released* version; a `PreToolUse` hook
   from the vendored toolkit (`plugin-dev/version-guard.sh`) refuses
   direct edits to it, so only `just release` can bump it.
-- **`hooks/hooks.json`** — wires eleven rules to fourteen scripts
+- **`hooks/hooks.json`** — wires twelve rules to fifteen scripts
   (branch/worktree creation needs two scripts to cover both its `Bash` and
   `EnterWorktree` matchers, the sandbox rule two — a
   `SessionStart` check and a `Bash` deny — and the piped-gate rule two,
@@ -126,12 +130,15 @@ hazard gets a hook directly or nothing.
   | ″ | `Bash` with `dangerouslyDisableSandbox` unset, any subcommand matching a `sandbox.excludedCommands` entry, unless every subcommand matches and the call has none of the shapes the harness keeps sandboxed; quoted text and heredoc bodies skipped, a call with `$( … )`, backticks, `<( … )` or `>( … )` not matched | deny | `deny-sandboxed-excluded-command.sh` |
   | A gate's exit status must not be the pipe's | `Bash`, a runner (`just` precommit/prerelease/release/lint/test recipe, `pytest`, `bats`, `run-bats.sh`) at a pipeline start with a pipe after it, run in the background or followed by `&&`/`\|\|`; `pipefail`/`PIPESTATUS` and probe flags pass | deny | `deny-piped-gate-status.sh` |
   | ″ | `PostToolUse` on `Bash`, the same runner piped, foreground, output carrying a failure line | **warn** (`additionalContext` + `systemMessage`) | `warn-piped-gate-failure.sh` |
+  | Edits under a loaded plugin root fail opaquely | `Write\|Edit\|MultiEdit\|NotebookEdit`, target at or below a `CLAUDE_CODE_PLUGIN_DIRS` entry or a `--plugin-dir[-no-mcp]` of the first `claude` ancestor | deny in `auto`/`dontAsk`; **note** (`systemMessage` only) in `default`/`acceptEdits` or with no mode | `deny-plugin-root-edit.sh` |
 
 - **`scripts/*.sh` + `tests/*-test.sh`** — one script per hook, one
-  end-to-end test per script; `scripts/lib/` holds code shared between
-  hooks, sourced rather than run, driven by synthetic hook JSON payloads
-  through `jq`. `just precommit` runs `shellcheck`, `bash -n`,
-  and every `tests/*-test.sh`. One test is not paired with a hook:
+  end-to-end test per script, driven by synthetic hook JSON payloads
+  through `jq`. `scripts/lib/` holds helpers shared between hooks,
+  sourced rather than run: command-text parsing for the `Bash` guards,
+  path resolution for the edit guards. `just precommit` runs
+  `shellcheck`, `bash -n`, and every `tests/*-test.sh`. One test is not
+  paired with a hook:
   `tests/portability-test.sh` is a static scan of every script and
   test for the GNU-only constructs the platform contract above rules
   out, since a suite that only ever runs on Linux is green on those by
@@ -628,9 +635,97 @@ Verdicts the tests encode:
 | `memory/ddaanet/x.md` | deny |
 | `plugin-dev/memory/x.md` | pass |
 
+### Deny edits under a loaded plugin root in unattended modes
+
+Claude Code treats every path at or below a directory it loads a plugin
+from as a sensitive file for `Write`, `Edit`, `MultiEdit` and
+`NotebookEdit`. Read from the 2.1.293 bundle: the roots are the
+`--plugin-dir` list, the hidden `--plugin-dir-no-mcp` list and
+`CLAUDE_CODE_PLUGIN_DIRS`, resolved against the launch directory and
+through `realpath`; the test is at-or-below and case-folded, with no
+manifest filter, so a "folder of plugins" root covers everything under
+it. In `default` and `acceptEdits` CC asks, with no reason line, and the
+human can approve. In `auto` the edit fails as "(it skipped this
+action)", in the branch that calls it a hard failure not to retry; why
+the server skips it is inferred, not traced. The agent sees an opaque
+refusal and retries, renames, or drops the edit without saying why.
+
+`deny-plugin-root-edit.sh` names the cause. In `auto` and `dontAsk` it
+denies: the reason says the path is under a root this session loads as
+a plugin and names the source; `additionalContext` says every edit there
+fails the same way, to edit the source tree when the root is a generated
+copy of one, and otherwise to tell the user the edit needs a session
+that does not load the root; `systemMessage` names root and source,
+which tells the human what to drop on relaunch. The relaunch is withheld
+from the agent: told to relaunch without `--plugin-dir`, it may spawn
+`claude` itself. In `default`, `acceptEdits` or an absent mode the hook
+only notes on `systemMessage`, explaining the prompt CC is about to
+show — a deny there would take away an approval the human can give.
+`plan`, `bypassPermissions` and unknown modes are silent: whether
+`bypassPermissions` skips CC's check was not traced, and a deny there
+could block an edit CC allows.
+
+Two root sources, because neither sees every launch.
+
+- **The environment.** `CLAUDE_CODE_PLUGIN_DIRS` reaches the hook, and
+  the dogfood shim sets it. Split on `:` by parameter expansion, since
+  entries hold spaces; `~` expanded against `HOME`; relative entries
+  dropped, as CC drops them.
+- **The `claude` process's argv.** CC creates the variable only when it
+  was already set, so a flag-only launch leaves it absent. The hook
+  walks its ancestors by the `PPid:` line of `/proc/<pid>/status` to the
+  first whose `comm` is exactly `claude` — two hops in production, hook
+  `bash` under `/bin/sh` under `claude`, one where `sh` execs its last
+  command; it gives up after eight — and
+  reads that process's NUL-separated `cmdline`, `--flag value` and
+  `--flag=value` alike, stopping at `--`. The walk is builtins only.
+  The first `claude` is what gives a nested `claude -p` its own argv
+  rather than its parent's; it inherits the outer variable, but CC loads
+  that value too, so the env source stays truthful.
+
+A relative argv root resolves against `CLAUDE_PROJECT_DIR`, falling back
+to the claude process's `/proc/<pid>/cwd`. CC resolves against its
+original cwd, which the project dir keeps and the process cwd leaves on
+`EnterWorktree`; the gitlore shim's `--plugin-dir .` makes relative
+roots real traffic. Unverified for a `claude --worktree` launch.
+
+Both sides of the match go through `abspath` (`scripts/lib/path.sh`),
+and a target that is itself a symlink is also followed through its link
+chain with a bare `readlink`, at most 16 links, since CC resolves the
+leaf too. A target matches at the root or below `root/`, never on a bare
+string prefix.
+
+Composition. `plugin-dev/dogfood.sh pre-tool` (project settings) denies
+edits into the `dist/plugin` copy this repo loads and names the source
+path; this hook denies the same edit with a recovery that agrees, and
+passes the source tree beside the copy, which the suite pins.
+Special-casing `dist/plugin` was rejected: it couples to the toolkit's
+layout and leaves another project loading that copy unexplained. With a
+root outside the project, `ask-write-edit-outside-project.sh` asks and
+this hook denies, and in auto the deny wins, which is right since the
+edit cannot land. A root holding `plugin-dev/` or `memory/` can draw two
+denies; either reason may render, and both contexts arrive. CC's
+`.claude`-segment sensitivity is a separate trigger this hook does not
+detect, so the deny names only the root it found.
+
+Cost: every edit-tool call pays bash, one `jq` and the walk, about
+50 ms on the common no-root path; a second `jq` and one `cd -P` per
+root come only under a root.
+
+Residuals. CC case-folds and this does not, so it under-fires on a
+case-insensitive volume. `..` in a non-existent tail is not collapsed.
+A `.zip` root matches only a `Write` to the zip itself. A path holding
+`:` cannot be expressed in the variable, for CC either. Without `/proc`
+— macOS included — only the env source exists, because `ps -o args=`
+space-joins argv and a spaced root would be unrecoverable; a
+`--plugin-dir` launch there under-fires and leaves CC's own opaque
+outcome, the status quo rather than a new failure. An npm/Node install,
+whose `comm` may be `node`, and a direct exec of the versioned binary
+fall back to env-only the same way.
+
 ### Deny output is stdout + exit 0, never stderr + exit 2
 
-All fourteen scripts emit their `hookSpecificOutput` JSON on stdout with
+All fifteen scripts emit their `hookSpecificOutput` JSON on stdout with
 exit 0, including deny decisions. `exit 2` is a valid deny mechanism but
 carries no `ask` capability and no `systemMessage` channel for a
 human-facing summary distinct from the agent-facing reason — using the
@@ -704,6 +799,10 @@ does this; the failure mode is silent, since a dropped
   passes on Linux either way, so it documents rather than proves.
   `shell_split`'s awk program has run only under mawk; it was reviewed
   against BSD awk, not run there, and its speed there is unmeasured.
+- **The plugin-root argv source is Linux-only.** It reads `/proc`;
+  elsewhere `deny-plugin-root-edit.sh` sees only
+  `CLAUDE_CODE_PLUGIN_DIRS`, and that no-`/proc` path is untested, since
+  the suite skips its argv cases there and nothing runs it on a Mac.
 - **No pairing check yet.** A repo that mounts the `ddaanet` memory tier
   without enabling this plugin is unguarded with no visible symptom.
   The check belongs in gitlore's `SessionStart`, not here, and doesn't

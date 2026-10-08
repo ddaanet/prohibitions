@@ -60,11 +60,13 @@ check 'GNU-only \b word boundary' \
   'spell the boundary as ([^A-Za-z0-9_]|^) / ([^A-Za-z0-9_]|$)'
 
 # BSD realpath has no -m, and macOS before 12.3 ships no realpath at all;
-# `readlink -f` is likewise GNU-only. scripts/lib/path.sh carries a portable
-# abspath() built from `cd -P` and `pwd`.
+# `readlink -f`, `-e` and `-m` are likewise GNU-only, so `readlink` is banned
+# with any option; plain `readlink <path>` (one link step) exists on macOS and
+# Linux and stays allowed. scripts/lib/path.sh carries a portable abspath()
+# built from `cd -P` and `pwd`.
 check 'GNU-only path resolution' \
-  '(^|[^A-Za-z0-9_-])(realpath|readlink)([^A-Za-z0-9_-]|$)' \
-  'use the abspath() helper (cd -P + pwd)'
+  '(^|[^A-Za-z0-9_-])(realpath([^A-Za-z0-9_-]|$)|readlink[[:space:]]+-)' \
+  'use the abspath() helper (cd -P + pwd); plain readlink with no option is fine'
 
 # The remaining GNU-only spellings this project has any reason to reach for.
 check 'GNU-only sed -i without a backup suffix' \
