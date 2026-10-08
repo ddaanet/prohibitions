@@ -162,6 +162,22 @@ for dirs in "$work/A:$R" "::$R:"; do
   expect_deny "5 env list '$dirs'" "$out" "$R" "$env_src"
 done
 
+# CC trims whitespace around each entry; inner spaces stay part of the path.
+for dirs in "  $R  " ":  $R:" "$work/A:"$'\t'"$R"$'\t' " $work/My Root "; do
+  case "$dirs" in
+    *"My Root"*) root="$work/My Root"; target="$work/My Root/x" ;;
+    *) root="$R"; target="$R/x" ;;
+  esac
+  out="$(CLAUDE_CODE_PLUGIN_DIRS="$dirs" run_under "$work" "$(pl Edit auto "$target")")"
+  expect_deny "5b env entry padded '$dirs'" "$out" "$root" "$env_src"
+done
+out="$(CLAUDE_CODE_PLUGIN_DIRS="$work/My Root" run_under "$work" "$(pl Edit auto "$work/My Root/x")")"
+expect_deny "5c env spaced root, unpadded" "$out" "$work/My Root" "$env_src"
+out="$(CLAUDE_CODE_PLUGIN_DIRS="$work/My Root" run_under "$work" "$(pl Edit auto "$work/My/x")")"
+expect_pass "5c env spaced root does not split into My" "$out"
+out="$(CLAUDE_CODE_PLUGIN_DIRS="   :	" run_under "$work" "$(pl Edit auto "$R/x")")"
+expect_pass "5d whitespace-only entries are empty" "$out"
+
 out="$(CLAUDE_CODE_PLUGIN_DIRS=rel run_under "$work" "$(pl Edit auto "$work/rel/x")")"
 expect_pass "6 a relative env entry is dropped" "$out"
 

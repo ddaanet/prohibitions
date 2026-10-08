@@ -669,8 +669,9 @@ Two root sources, because neither sees every launch.
 
 - **The environment.** `CLAUDE_CODE_PLUGIN_DIRS` reaches the hook, and
   the dogfood shim sets it. Split on `:` by parameter expansion, since
-  entries hold spaces; `~` expanded against `HOME`; relative entries
-  dropped, as CC drops them.
+  entries hold spaces; each entry trimmed of leading and trailing spaces
+  and tabs, as CC trims it, with inner spaces kept; `~` expanded against
+  `HOME`; relative entries dropped, as CC drops them.
 - **The `claude` process's argv.** CC creates the variable only when it
   was already set, so a flag-only launch leaves it absent. The hook
   walks its ancestors by the `PPid:` line of `/proc/<pid>/status` to the

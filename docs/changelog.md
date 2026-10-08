@@ -4,6 +4,15 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-10-09** — `deny-plugin-root-edit.sh` trims leading and trailing
+  spaces and tabs from each `CLAUDE_CODE_PLUGIN_DIRS` entry, before the
+  empty check and the `~` expansion, as Claude Code does; a padded entry
+  (`" /root "`, `": /root:"`) used to fail the absolute-path test and
+  under-fire. Inner spaces are kept, so a spaced root still works.
+  Red check: the four new padded cases (spaces, `:`-adjacent spaces,
+  tabs, a padded spaced root) failed on their deny assertion against the
+  unchanged hook, while the unpadded spaced root and the whitespace-only
+  entry cases passed.
 - **2026-10-09** — A `shell_split` failure in the three git-walking hooks
   (`deny-worktree-discarding-git.sh`, `deny-git-add-all.sh`,
   `ask-branch-worktree-bash.sh`) no longer blocks the call. Under `set -e`

@@ -18,8 +18,10 @@
 # Roots come from two sources, env entries first, then argv in order; the
 # first root containing the target is the one reported:
 #   - CLAUDE_CODE_PLUGIN_DIRS, split on `:` by parameter expansion (entries
-#     may hold spaces), a leading `~` expanded against HOME, non-absolute
-#     entries dropped as Claude Code drops them;
+#     may hold spaces; leading and trailing spaces and tabs are trimmed per
+#     entry, as Claude Code does, and an empty entry skipped), a leading
+#     `~` expanded against HOME, non-absolute entries dropped as Claude
+#     Code drops them;
 #   - the `--plugin-dir[-no-mcp]` options in the argv of the first ancestor
 #     process whose `comm` is exactly `claude`, found through /proc (Linux
 #     only). A flag-only launch never creates the env variable, so both are
@@ -85,6 +87,10 @@ while [ -n "$rest" ]; do
     *:*) entry="${rest%%:*}"; rest="${rest#*:}" ;;
     *) entry="$rest"; rest="" ;;
   esac
+  # CC trims whitespace around each entry; inner spaces are part of the path.
+  while [ "${entry#[ $'\t']}" != "$entry" ]; do entry="${entry#[ $'\t']}"; done
+  while [ "${entry%[ $'\t']}" != "$entry" ]; do entry="${entry%[ $'\t']}"; done
+  [ -n "$entry" ] || continue
   if [ -n "$home" ]; then
     # A literal ~ on purpose: expanding it against HOME is the job, as CC's.
     # shellcheck disable=SC2088
