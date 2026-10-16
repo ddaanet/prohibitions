@@ -10,3 +10,4 @@ __pycache__/
 .claude/handoff-session
 
 /dist/plugin/
+/.mcp.json
