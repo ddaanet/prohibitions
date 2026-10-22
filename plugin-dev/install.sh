@@ -48,7 +48,12 @@ fi
 changed=()
 settings=".claude/settings.json"
 # shellcheck disable=SC2016  # ${CLAUDE_PROJECT_DIR} is for Claude Code to expand at hook-fire time, not bash now.
-hook_cmd='bash ${CLAUDE_PROJECT_DIR}/plugin-dev/version-guard.sh'
+hook_cmd='bash "${CLAUDE_PROJECT_DIR}/plugin-dev/version-guard.sh"'
+# The spelling earlier releases wrote, unquoted: a project path holding a blank
+# split into two words and the guard failed open. Kept only so add_hook can
+# find it and migrate it; nothing writes it.
+# shellcheck disable=SC2016  # same: matched literally, never expanded here.
+legacy_hook_cmd='bash ${CLAUDE_PROJECT_DIR}/plugin-dev/version-guard.sh'
 
 # Pre-flight: validate any existing settings.json BEFORE the slow subtree
 # add, so a malformed file fails fast instead of leaving a half-installed
@@ -62,6 +67,22 @@ fi
 
 # 1. Vendor the toolkit if missing.
 if [ ! -d "$TOOLKIT_PREFIX" ]; then
+    # The state of this repository is a local fact, so it is checked before the
+    # network read below that resolves a missing ref: an unreachable remote must
+    # not hide a refusal that needs no remote. Each of the three has its own
+    # message, because `git rev-parse HEAD` fails outside a repository as well
+    # as in one with no commits, and `git diff HEAD` fails in the second.
+    git rev-parse --git-dir >/dev/null 2>&1 || {
+        echo "error: not a git repository — run this from the plugin's repository root" >&2
+        exit 1
+    }
+    # `subtree add` needs a commit to attach to; with none there is no HEAD to
+    # diff against either.
+    git rev-parse -q --verify HEAD >/dev/null || {
+        echo "error: no commits yet — commit the plugin before vendoring" >&2
+        exit 1
+    }
+    git diff --quiet HEAD || { echo "error: uncommitted changes — commit or stash before vendoring" >&2; exit 1; }
     if [ -z "$ref" ]; then
         # Same resolver as update.sh's no-ref default. Kept as a copy here:
         # the bootstrap script must stay runnable on its own, without
@@ -91,7 +112,6 @@ if [ ! -d "$TOOLKIT_PREFIX" ]; then
           exit 1
           ;;
     esac
-    git diff --quiet HEAD || { echo "error: uncommitted changes — commit or stash before vendoring" >&2; exit 1; }
     git subtree add --prefix="$TOOLKIT_PREFIX" "$TOOLKIT_URL" "$ref" --squash
     changed+=("$TOOLKIT_PREFIX/ (vendored at $ref)")
 elif [ -n "$ref" ]; then
@@ -136,10 +156,32 @@ fi
 # rescoped it, and a second copy beside it would run the command twice wherever
 # the two matchers overlap. An empty matcher argument omits the key, which is
 # how SessionStart is wired.
+#
+# The optional fourth argument is a legacy spelling of the command, which
+# presence is blind to: it is an exact match, so the new spelling appended
+# beside an old one would run the guard twice. With it:
+#   - the command present: any legacy entry is removed, and an entry left with
+#     no hooks is dropped;
+#   - else the legacy present: its command is rewritten in place, so a matcher
+#     the consumer rescoped it to survives;
+#   - neither: appended as without it.
 add_hook() {
-    jq --arg event "$1" --arg matcher "$2" --arg cmd "$3" '
-      if ([.hooks[$event][]? | .hooks[]? | select(.command == $cmd)] | length > 0)
-      then .
+    jq --arg event "$1" --arg matcher "$2" --arg cmd "$3" --arg legacy "${4:-}" '
+      def has_cmd($c): any(.hooks[$event][]?; any(.hooks[]?; .command == $c));
+      if has_cmd($cmd)
+      then if $legacy != "" and has_cmd($legacy)
+           then .hooks[$event] |= [
+                  .[] | if any(.hooks[]?; .command == $legacy)
+                        then (.hooks |= map(select(.command != $legacy)))
+                             | select(.hooks | length > 0)
+                        else . end
+                ]
+           else . end
+      elif $legacy != "" and has_cmd($legacy)
+      then .hooks[$event] |= map(
+             if any(.hooks[]?; .command == $legacy)
+             then .hooks |= map(if .command == $legacy then .command = $cmd else . end)
+             else . end)
       else .hooks //= {} |
            .hooks[$event] //= [] |
            .hooks[$event] += [
@@ -158,7 +200,7 @@ session_cmd='bash "${CLAUDE_PROJECT_DIR}/plugin-dev/dogfood.sh" session-start'
 mkdir -p .claude
 tmp="$(mktemp)"
 { if [ -f "$settings" ]; then cat "$settings"; else echo '{}'; fi \
-    | add_hook PreToolUse 'Write|Edit' "$hook_cmd" \
+    | add_hook PreToolUse 'Write|Edit' "$hook_cmd" "$legacy_hook_cmd" \
     | add_hook PreToolUse 'Write|Edit|NotebookEdit' "$pretool_cmd" \
     | add_hook SessionStart '' "$session_cmd" > "$tmp"; } || {
     rm -f "$tmp"
@@ -166,16 +208,44 @@ tmp="$(mktemp)"
     exit 1
 }
 
+# Read before the write, from the file as the consumer left it: whether the
+# legacy spelling is there decides what the run reports.
+requoted=0
+if [ -f "$settings" ] && jq -e --arg l "$legacy_hook_cmd" \
+    '[.hooks.PreToolUse[]? | .hooks[]? | select(.command == $l)] | length > 0' \
+    "$settings" > /dev/null; then
+    requoted=1
+fi
+
+# Every distinct command wired anywhere in a settings file, one per line, empty
+# for a missing file. Residual bound: a command holding a newline reads as two.
+settings_cmds() {
+    if [ -f "$1" ]; then
+        jq -r '[.hooks[]?[]? | .hooks[]? | .command // empty] | unique[]' "$1"
+    fi
+}
+
 if [ -f "$settings" ] && cmp -s "$settings" "$tmp"; then
     rm -f "$tmp"
 else
+    # Commands the file did not carry before. The version-guard's quoted one
+    # does not count when it replaced the legacy entry: that is the requote.
+    added="$(comm -13 <(settings_cmds "$settings") <(settings_cmds "$tmp"))"
+    if [ "$requoted" -eq 1 ]; then
+        added="$(grep -vxF -- "$hook_cmd" <<<"$added" || true)"
+    fi
     # Write through the destination rather than `mv`-ing the mktemp file over
     # it: mktemp creates 0600, and mv carries that mode onto the consumer's
     # settings file. Redirection keeps an existing file's mode, ownership and
     # ACL, and creates a new one at the umask like any other tool would.
     cat "$tmp" > "$settings"
     rm -f "$tmp"
-    changed+=("$settings (wired the version-guard and dogfood hooks)")
+    if [ "$requoted" -eq 1 ]; then
+        changed+=("$settings (version-guard hook requoted)")
+    fi
+    if [ -n "$added" ] || [ "$requoted" -eq 0 ]; then
+        changed+=("$settings (wired the version-guard and dogfood hooks)")
+    fi
 fi
 
 if [ "${#changed[@]}" -eq 0 ]; then
@@ -191,8 +261,8 @@ else
     echo "  2. Commit the changes:"
     echo "     git add $TOOLKIT_PREFIX justfile .claude/settings.json"
     echo "     git commit -m 'add claude-plugin-dev toolkit'"
-    echo "  3. Set up the dogfood launcher: $TOOLKIT_PREFIX/README.md, section"
-    echo "     Dogfooding, subsection Setup. Until then the SessionStart check"
+    echo "  3. Set up the dogfood launcher: $TOOLKIT_PREFIX/manual/dogfood.md,"
+    echo "     section Setup. Until then the SessionStart check"
     echo "     warns on every session."
     echo "  4. Create the copy the session loads, then launch claude from the"
     echo "     repo root; without the copy the session starts without the plugin:"
