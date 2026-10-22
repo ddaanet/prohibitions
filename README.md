@@ -43,8 +43,7 @@ teaches the recovery instead of just saying no.
   `PostToolUse` warning when the output shows a failure the exit 0 hid.
   `set -o pipefail` first, or no pipe, passes.
 
-See [`docs/design.md`](docs/design.md) for the full matcher table, the
-rationale behind each decision, and what was rejected along the way.
+See the [rule table](manual/rules.md) for what each hook matches and decides.
 
 ## Installing
 
@@ -64,7 +63,8 @@ just precommit   # shellcheck, bash -n, and every tests/*-test.sh
 just release     # bump plugin.json, commit, tag, push, gh release
 ```
 
-See [`CLAUDE.md`](CLAUDE.md) for repo layout and conventions.
+The [design document](https://github.com/ddaanet/prohibitions/blob/main/docs/design.md)
+holds the rationale behind each decision and what was rejected along the way.
 
 ## License
 

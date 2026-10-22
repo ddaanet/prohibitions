@@ -18,9 +18,9 @@ arises.
 hooks from the bootstrap brief plus later ones — among them
 `deny-git-add-all`, `deny-worktree-discarding-git`, the piped-gate pair and
 the `SessionStart` check `warn-sandbox-excluded-commands` — each with a
-script in `scripts/` and an end-to-end test in `tests/`. The living design
-— full matcher table, design decisions with rationale, rejected
-alternatives — is
+script in `scripts/` and an end-to-end test in `tests/`. The full matcher
+table is the user manual's `manual/rules.md`. The living design — design
+decisions with rationale, rejected alternatives — is
 `docs/design.md`; read it before touching a hook here. The original
 bootstrap brief is `plans/brief-prohibitions-plugin-bootstrap.md`. The
 rationale for *which* rules convert to hooks vs. stay prose is in
@@ -51,7 +51,9 @@ just update-plugin-dev dist-vX.Y.Z # pull a newer plugin-dev/ toolkit version (d
   update-plugin-dev`.
 - **`hooks/hooks.json`**, **`scripts/`**, **`tests/`** — the rules'
   wiring, one script per hook, one end-to-end test per script. Full matcher
-  table and rationale: `docs/design.md`.
+  table: `manual/rules.md`; rationale: `docs/design.md`.
+- **`manual/`** — user documentation, shipped: the rule table. A hook change
+  that alters what it matches or decides updates its row there.
 - **`docs/design.md`** — living rationale for every design decision. States
   what the plugin *is*; update when a design choice changes.
 - **`docs/changelog.md`** — write-time record of each change, newest first.

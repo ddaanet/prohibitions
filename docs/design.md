@@ -39,8 +39,8 @@ or nothing.
 ### Functional
 
 - One hook per rule in scope — `PreToolUse` except where noted —
-  denying, asking or warning per the rule's own contract (see
-  Architecture below for the current set).
+  denying, asking or warning per the rule's own contract (the current
+  set is the manual's [rule table](../manual/rules.md)).
 - Each hook carries the recovery detail the prose it replaces used to
   carry — e.g. the `--no-verify` block names the stale-push-hook
   recovery (`(cd <repo> && claude -p ping)`), not just "no." Where that
@@ -112,26 +112,9 @@ or nothing.
   (branch/worktree creation needs two scripts to cover both its `Bash` and
   `EnterWorktree` matchers, the sandbox rule two — a
   `SessionStart` check and a `Bash` deny — and the piped-gate rule two,
-  a `PreToolUse` deny and a `PostToolUse` warning):
-
-  | Rule | Matcher | Decision | Script |
-  | --- | --- | --- | --- |
-  | Never call `AskUserQuestion` | tool name `AskUserQuestion` | deny (reason + `additionalContext` + `systemMessage`) | `deny-ask-user-question.sh` |
-  | Other repos stay read-only | `Write\|Edit`, path outside `CLAUDE_PROJECT_DIR`; a `Write` creating a new `.md` exempt, except `CLAUDE.md` and anything under `.claude/` | **ask** | `ask-write-edit-outside-project.sh` |
-  | Never hand-edit a vendored subtree | `Write\|Edit`, a `plugin-dev` segment at a git tree root (`.git`-adjacent) | deny | `deny-plugin-dev-edit.sh` |
-  | Never `--no-verify` | `Bash`, regex over `git commit`/`git push` | deny | `deny-no-verify.sh` |
-  | Never create/switch branches or worktrees | `Bash`, `git` as the command word: `checkout -b/-B/--orphan`, `switch -c/-C/--orphan`, `worktree add`, `stash branch` | **ask** | `ask-branch-worktree-bash.sh` |
-  | ″ | `EnterWorktree` | **ask** | `ask-enter-worktree.sh` |
-  | No volatile git state in memory files | `Write\|Edit` on `*.md` under a `memory` segment at a git tree root (`.git`-adjacent), `` `[0-9a-f]{5,40}` `` minus digits/hex-words/frontmatter/UUIDs/`hygiene-ok` lines | deny | `deny-volatile-memory-state.sh` |
-  | GitHub bodies are not hard-wrapped | `Bash` on `gh pr\|issue create\|comment\|edit\|review` with `--body-file` | deny | `deny-hardwrapped-gh-body.sh` |
-  | No whole-tree `git add` | `Bash`, `git` as the command word: `add`/`stage` with `-A` (alone or in a cluster), `--all`, `--no-ignore-removal`, `.`, `./`, `:/` or `*`, quoted or bare | deny | `deny-git-add-all.sh` |
-  | Uncommitted work is not discarded by git | `Bash`, `git` as the command word: `reset --hard\|--merge`, `clean -f` without `-n`, `stash drop\|clear`, a forced `checkout`/`switch` (forced create included), a `checkout`/`restore` of a bulk pathspec (`.`, `..`, `:/`, other `:` magic, a glob, a trailing `/`, a directory) → deny; a `checkout`/`restore` of named files → ask | deny / **ask** | `deny-worktree-discarding-git.sh` |
-  | Never run sandboxed `git`/`find`/`ls`/`claude -p`/`just release` | `SessionStart`, checks `~/.claude/settings.json` `sandbox.excludedCommands` ⊇ `git *`, `find *`, `ls *`, `claude *`, `just release *` (each also accepted as legacy `cmd:*`) | **warn** (`additionalContext` + `systemMessage`) | `warn-sandbox-excluded-commands.sh` |
-  | ″ | `Bash` with `dangerouslyDisableSandbox` unset, any subcommand matching a `sandbox.excludedCommands` entry, unless every subcommand matches and the call has none of the shapes the harness keeps sandboxed; quoted text and heredoc bodies skipped, a call with `$( … )`, backticks, `<( … )` or `>( … )` not matched | deny | `deny-sandboxed-excluded-command.sh` |
-  | A gate's exit status must not be the pipe's | `Bash`, a runner (`just` precommit/prerelease/release/lint/test recipe, `pytest`, `bats`, `run-bats.sh`) at a pipeline start with a pipe after it, run in the background or followed by `&&`/`\|\|`; `pipefail`/`PIPESTATUS` and probe flags pass | deny | `deny-piped-gate-status.sh` |
-  | ″ | `PostToolUse` on `Bash`, the same runner piped, foreground, output carrying a failure line | **warn** (`additionalContext` + `systemMessage`) | `warn-piped-gate-failure.sh` |
-  | Edits under a loaded plugin root fail opaquely | `Write\|Edit\|MultiEdit\|NotebookEdit`, target at or below a `CLAUDE_CODE_PLUGIN_DIRS` entry or a `--plugin-dir[-no-mcp]` of the first `claude` ancestor | deny in `auto`/`dontAsk`; **note** (`systemMessage` only) in `default`/`acceptEdits` or with no mode | `deny-plugin-root-edit.sh` |
-
+  a `PreToolUse` deny and a `PostToolUse` warning). The rule, matcher,
+  decision and script of each are listed in the manual's
+  [rule table](../manual/rules.md).
 - **`scripts/*.sh` + `tests/*-test.sh`** — one script per hook, one
   end-to-end test per script, driven by synthetic hook JSON payloads
   through `jq`. `scripts/lib/` holds helpers shared between hooks,
@@ -150,6 +133,8 @@ or nothing.
 - **`plans/`** — prospective content: the bootstrap brief and any
   future implementation plans.
 - **`docs/`** — this file and its changelog: what the project *is*, now.
+- **`manual/`** — user documentation, shipped with the plugin: the rule
+  table, what each hook matches and decides.
 - **`memory/`** — the `ddaanet` shared memory tier, mounted as a
   submodule via gitlore. Includes `shared-claude.md`, the prose this
   plugin's hooks are converting rule-by-rule.
@@ -265,7 +250,8 @@ runs.
 
 `deny-worktree-discarding-git.sh` guards a workflow hazard, not a
 converted prose rule: git can discard uncommitted edits with no record
-to recover them from. The bulk forms in the matcher table are denied.
+to recover them from. The bulk forms in the
+[rule table](../manual/rules.md) are denied.
 `reset --merge` is among them because it reverts a staged-only change
 and the transcript corpus held no use of it; a glob or `:`-magic
 pathspec, because it is often narrow but never names its files, and

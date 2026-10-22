@@ -4,6 +4,19 @@ Write-time records, newest first. This project is small enough that
 each entry lives here directly rather than in a separate dated file per
 entry — see [[design-doc-writing]] for when that split is worth making.
 
+- **2026-10-21** — The matcher table moved out of `design.md` into a
+  shipped `manual/rules.md`: every rule, matcher, decision and script, with
+  a short intro saying what deny, ask, warn and note mean to a plugin user.
+  The release toolkit moved to 0.12.0, whose `dist` branch ships only what
+  `dist.include` lists and whose reference check refuses a shipped file
+  linking to one it leaves out; `docs/` is design and no longer ships, so
+  the README links the manual for what each hook does and reaches the
+  design by one URL. `design.md` links the manual from the Architecture
+  `hooks/hooks.json` bullet, the Functional requirement and "Deny bulk
+  discards", and keeps every decision and its argument. The same pull
+  brought the toolkit's gate sentinel: `precommit` skips itself while no
+  input it reads has changed, except the memory-reading test, which runs
+  ahead of the guard because the hash cannot see the `memory/` gitlink.
 - **2026-10-09** — `deny-plugin-root-edit.sh` trims leading and trailing
   spaces and tabs from each `CLAUDE_CODE_PLUGIN_DIRS` entry, before the
   empty check and the `~` expansion, as Claude Code does; a padded entry
