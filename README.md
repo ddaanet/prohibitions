@@ -1,0 +1,71 @@
+# prohibitions
+
+A Claude Code plugin that enforces `ddaanet` behavioural rules with hooks
+— `PreToolUse` except where noted — instead of always-on prose. Where a
+rule has a clean mechanical detection, a hook acts at the moment of
+action — paid only when the situation arises, with a message that
+teaches the recovery instead of just saying no.
+
+## What it blocks (and asks, and warns)
+
+- **Never call `AskUserQuestion`** — deny.
+- **Never `git commit`/`git push --no-verify`** — deny, with the
+  stale-push-hook recovery in the message.
+- **GitHub PR/issue bodies must not hard-wrap** a paragraph across
+  physical lines (every newline renders as `<br>`) — deny, naming the
+  offending file and line.
+- **Never hand-edit a vendored `plugin-dev/` subtree** — deny.
+- **No volatile git state** (commit ids, abbreviated or full) **written
+  into memory files** — deny.
+- **Never `git add -A` / `--all` / `.`** (whole-tree staging) — deny;
+  name the paths.
+- **Creating or switching a branch or worktree** — ask, since it can be
+  legitimate (executing an instruction to merge onto a named base).
+- **Editing a file outside the project directory** — ask, since
+  dropping a note in another repo is legitimate; only unreviewed edits
+  aren't.
+- **A harness sandbox that doesn't exclude `git`, `find`, `ls`,
+  `claude` and `just release`** — a `SessionStart` warning, since
+  sandboxed the first four see phantom dotfiles or silently drop
+  SessionStart hooks, and a recipe body is invisible to the harness, so
+  the `git` exclusion never reaches the `git push` and `gh` calls the
+  release runs inside it.
+- **An excluded command that would still run sandboxed** — deny, unless
+  the call sets `dangerouslyDisableSandbox`. The harness exempts a call
+  only when every part of it is excluded, so `git commit | tail` or
+  `ls | sort` runs sandboxed and fails or lists phantom dotfiles. Calls
+  the harness already exempts, such as a bare `git status`, pass; where
+  the hook cannot tell — a redirect, a `$`, a glob, `git -C` — it
+  denies.
+- **A gate or test runner piped so the pipe's exit status stands in for
+  its own** (`just precommit | tail`, `pytest | tail`) — deny when the
+  call runs in the background or `&&`/`||` follows the pipe; otherwise a
+  `PostToolUse` warning when the output shows a failure the exit 0 hid.
+  `set -o pipefail` first, or no pipe, passes.
+
+See the [rule table](manual/rules.md) for what each hook matches and decides.
+
+## Installing
+
+```
+/plugin marketplace add ddaanet/claude-plugins
+/plugin install prohibitions@ddaanet
+```
+
+## Requirements
+
+`bash`, `jq`.
+
+## Development
+
+```sh
+just precommit   # shellcheck, bash -n, and every tests/*-test.sh
+just release     # bump plugin.json, commit, tag, push, gh release
+```
+
+The [design document](https://github.com/ddaanet/prohibitions/blob/main/docs/design.md)
+holds the rationale behind each decision and what was rejected along the way.
+
+## License
+
+MIT
